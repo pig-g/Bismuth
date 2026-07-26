@@ -206,14 +206,33 @@ def test_verifier_reports_listener_leaked_by_failing_runner(tmp_path):
             timeout=15,
         )
     finally:
+        listener_closed = False
         if pid_file.exists():
-            os.kill(int(pid_file.read_text()), signal.SIGTERM)
+            listener_pid = int(pid_file.read_text())
+            try:
+                os.kill(listener_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             with socket.socket() as probe:
                 if probe.connect_ex(("127.0.0.1", test_port)) != 0:
+                    listener_closed = True
                     break
             time.sleep(0.02)
+        if not listener_closed and pid_file.exists():
+            try:
+                os.kill(listener_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with socket.socket() as probe:
+                    if probe.connect_ex(("127.0.0.1", test_port)) != 0:
+                        listener_closed = True
+                        break
+                time.sleep(0.02)
+        assert listener_closed, f"test teardown leaked listener on port {test_port}"
 
     assert result.returncode != 0
     assert f"cleanup failed: port {test_port} still has a listener" in result.stderr
