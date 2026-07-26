@@ -11,63 +11,41 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LAB_DIR = REPO_ROOT / "labs" / "00-regnet-first-run"
 
 
-def test_lab_zero_has_complete_runnable_package():
+def test_lab_zero_is_a_small_runnable_quickstart():
     expected_files = {
         "README.md",
-        "exercise.md",
-        "instructor.md",
         "verify.sh",
     }
+    forbidden_files = {
+        "exercise.md",
+        "instructor.md",
+    }
 
-    assert expected_files <= {path.name for path in LAB_DIR.iterdir()}
+    actual_files = {path.name for path in LAB_DIR.iterdir()}
+    assert expected_files <= actual_files
+    assert forbidden_files.isdisjoint(actual_files)
     assert (LAB_DIR / "verify.sh").stat().st_mode & 0o111
 
 
-def test_student_readme_defines_safe_bounded_learning_contract():
+def test_readme_defines_safe_practical_regnet_quickstart():
     readme = (LAB_DIR / "README.md").read_text()
 
-    assert "60–90 minutes" in readme
+    assert "10–15 minutes" in readme
     assert "Do not use real BIS" in readme
     assert "./labs/00-regnet-first-run/verify.sh" in readme
+    assert "./scripts/test_regnet.sh" in readme
+    assert "LAB 0 PASS" in readme
+    assert "clears and recreates" in readme
     for required_concept in (
-        "Core node",
-        "BismuthClient",
-        "5658",
-        "3030",
-        "RPC readiness",
-        "temporary data directory",
+        "myserver",
+        "get_client",
+        "regtest_generate",
         "127.0.0.1",
+        "3030",
     ):
         assert required_concept in readme
-
-
-def test_exercise_and_instructor_cover_the_shared_failure_diagnosis():
-    exercise = (LAB_DIR / "exercise.md").read_text()
-    instructor = (LAB_DIR / "instructor.md").read_text()
-
-    for checkpoint in (
-        "Checkpoint 1",
-        "Checkpoint 2",
-        "Checkpoint 3",
-        "Checkpoint 4",
-        "ConnectionRefusedError",
-        "portget",
-        "api_getconfig",
-        "node-output.log",
-    ):
-        assert checkpoint in exercise
-
-    for answer in (
-        "Shared root cause",
-        "python3 node.py regnet2",
-        "mainnet0022",
-        "5658",
-        "3030",
-        "readiness_token",
-        "fixed sleep",
-        "cleanup",
-    ):
-        assert answer in instructor
+    assert "26 failures" not in readme
+    assert "quiz" not in readme.lower()
 
 
 def test_verifier_runs_the_regnet_runner_and_reports_cleanup(tmp_path):
