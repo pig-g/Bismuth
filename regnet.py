@@ -31,6 +31,20 @@ REGNET_INDEX = "static/index_reg.db"
 REGNET_PEERS = "peers_reg.txt"
 REGNET_SUGGESTED_PEERS = "peers_reg.txt"
 
+
+def configure_data_dir(data_dir):
+    """Keep all mutable regnet files inside an isolated directory."""
+    global REGNET_DB, REGNET_INDEX, REGNET_PEERS
+    global REGNET_SUGGESTED_PEERS, FILES_TO_REMOVE
+
+    data_dir = os.path.abspath(os.fspath(data_dir))
+    os.makedirs(data_dir, exist_ok=True)
+    REGNET_DB = os.path.join(data_dir, "regmode.db")
+    REGNET_INDEX = os.path.join(data_dir, "index_reg.db")
+    REGNET_PEERS = os.path.join(data_dir, "peers_reg.txt")
+    REGNET_SUGGESTED_PEERS = REGNET_PEERS
+    FILES_TO_REMOVE = [REGNET_DB, REGNET_INDEX]
+
 SQL_INDEX = [ "CREATE TABLE aliases (block_height INTEGER, address, alias)",
               "CREATE TABLE tokens (block_height INTEGER, timestamp, token, address, recipient, txid, amount INTEGER)" ]
 
@@ -56,6 +70,8 @@ HASHCOUNT = 10
 
 # Max number of tx to embed per block.
 TX_PER_BLOCK = 2
+MAX_GENERATION_ATTEMPTS = 100
+MAX_NONCE_BATCHES = 100
 
 
 # Do not edit below, it's fed by node.py
@@ -82,7 +98,7 @@ def generate_one_block(blockhash, mempool_txs, node, db_handler):
             return
         diff_hex = math.floor((REGNET_DIFF / 8) - 1)
         mining_condition = blockhash[0:diff_hex]
-        while True:
+        for _batch in range(MAX_NONCE_BATCHES):
             try_arr = [('%0x' % getrandbits(32)) for i in range(HASHCOUNT)]
             i = 0
             for i in range(100):
@@ -155,18 +171,38 @@ def generate_one_block(blockhash, mempool_txs, node, db_handler):
         node.logger.app_log.warning(exc_type, fname, exc_tb.tb_lineno)
 
 
+def generate_blocks(blockhash, how_many, node, db_handler):
+    """Generate exactly ``how_many`` blocks or fail explicitly."""
+    if how_many < 0:
+        raise ValueError("Regnet block count must be non-negative")
+    for _ in range(how_many):
+        for _attempt in range(MAX_GENERATION_ATTEMPTS):
+            mempool_txs = mp.MEMPOOL.fetchall(mp.SQL_SELECT_TX_TO_SEND)
+            new_hash = generate_one_block(blockhash, mempool_txs, node, db_handler)
+            if new_hash:
+                blockhash = new_hash
+                break
+        else:
+            raise RuntimeError(
+                f"Unable to generate a regnet block after {MAX_GENERATION_ATTEMPTS} attempts"
+            )
+    return blockhash
+
+
 def command(sdef, data, blockhash, node, db_handler):
     try:
         node.logger.app_log.warning("Regnet got command {}".format(data))
         if data == 'regtest_generate':
             how_many = int(connections.receive(sdef))
             node.logger.app_log.warning("regtest_generate {} {}".format(how_many, blockhash))
-            mempool_txs = mp.MEMPOOL.fetchall(mp.SQL_SELECT_TX_TO_SEND)
-            for i in range(how_many):
-                blockhash = generate_one_block(blockhash, mempool_txs, node, db_handler)
+            generate_blocks(blockhash, how_many, node, db_handler)
             connections.send(sdef, 'OK')
     except Exception as e:
         node.logger.app_log.warning(e)
+        try:
+            connections.send(sdef, "ERROR: {}".format(e))
+        except Exception as send_error:
+            node.logger.app_log.warning(send_error)
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         node.logger.app_log.warning(exc_type, fname, exc_tb.tb_lineno)

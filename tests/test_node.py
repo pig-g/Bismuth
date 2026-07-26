@@ -4,7 +4,7 @@
 
 import hashlib
 from base64 import b64decode
-from time import sleep
+from time import monotonic, sleep
 from common import get_client
 
 
@@ -60,19 +60,29 @@ def test_api_config(myserver, verbose=False):
 def test_api_getaddresssince(myserver, verbose=False):
     client = get_client(verbose=verbose)
     client.command(command="regtest_generate", options=[1])  # Mine a block so that we have some funds
-    client.send(recipient=client.address, amount=1.0)  # Tries to send 1.0 to self
-    client.command(command="regtest_generate", options=[10])  # Mine 10 more blocks
-    sleep(1)
-    data2 = client.command(command="blocklastjson")
-    if verbose:
-        print(f"blocklastjson returns {data2}")
-    since = data2['block_height'] - 10
+    tx_id = client.send(recipient=client.address, amount=1.0)  # Tries to send 1.0 to self
+    client.command(command="regtest_generate", options=[1])  # Confirm the transaction
+    confirmed_block = client.command(command="blocklastjson")
+    target_height = confirmed_block['block_height'] + 8
+    deadline = monotonic() + 15
+    current_height = confirmed_block['block_height']
+    while current_height < target_height and monotonic() < deadline:
+        client.command(command="regtest_generate", options=[1])
+        current_height = client.command(command="blocklastjson")['block_height']
+    assert current_height >= target_height
+
+    since = confirmed_block['block_height'] - 1
     conf = 8
     data = client.command(command="api_getaddresssince", options=[since, conf, client.address])
     if verbose:
         print(f"api_getaddresssince returns {data}")
-    n = len(data['transactions'])
-    assert n == 3
+    matching_transactions = [
+        transaction
+        for transaction in data['transactions']
+        if transaction[5].startswith(tx_id)
+    ]
+    assert data['last'] == confirmed_block['block_height']
+    assert len(matching_transactions) == 1
 
 
 def test_api_getblockssince(myserver, verbose=False):
@@ -92,8 +102,9 @@ def test_api_getblockssince(myserver, verbose=False):
         print(f"api_getblocksince returns {blocks}")
     n = len(blocks)
     assert n == 11
-    assert blocks[0][11] == data
-    assert float(blocks[0][4]) == amount
+    matching_transactions = [block for block in blocks if block[11] == data]
+    assert len(matching_transactions) == 1
+    assert float(matching_transactions[0][4]) == amount
 
 
 def test_add_validate(myserver, verbose=False):

@@ -1,3 +1,4 @@
+-c constraints.txt
+-r ../requirements-node.txt
 bismuthclient
-bismuthcore>=0.0.18
 pytest

@@ -15,6 +15,7 @@ VERSION = "4.5.0.1"
 
 import functools
 import glob
+import os
 import platform
 import shutil
 import socketserver
@@ -34,6 +35,8 @@ import log
 import options
 import peershandler
 import plugins
+import node_cli
+import regnet
 # import tokensv2 as tokens  # TODO: unused here
 import wallet_keys
 from connections import send, receive
@@ -1877,10 +1880,17 @@ def initial_db_check():
 def load_keys():
     """Initial loading of crypto keys"""
     # TODO: candidate for single user mode
-    essentials.keys_check(node.logger.app_log, "wallet.der")
+    wallet_file = getattr(node, "wallet_file", "wallet.der")
+    explicit_wallet = wallet_file != "wallet.der"
+    if explicit_wallet:
+        os.makedirs(os.path.dirname(wallet_file), exist_ok=True)
+    essentials.keys_check(node.logger.app_log, wallet_file, allow_legacy=not explicit_wallet)
 
-    node.keys.key, node.keys.public_key_readable, node.keys.private_key_readable, _, _, node.keys.public_key_b64encoded, node.keys.address, node.keys.keyfile = essentials.keys_load(
-        "privkey.der", "pubkey.der")
+    if explicit_wallet:
+        key_data = essentials.keys_load_new(wallet_file)
+    else:
+        key_data = essentials.keys_load("privkey.der", "pubkey.der")
+    node.keys.key, node.keys.public_key_readable, node.keys.private_key_readable, _, _, node.keys.public_key_b64encoded, node.keys.address, node.keys.keyfile = key_data
 
     if node.is_regnet:
         regnet.PRIVATE_KEY_READABLE = node.keys.private_key_readable
@@ -1978,6 +1988,7 @@ def add_indices(db_handler: dbhandler.DbHandler):
 
 
 if __name__ == "__main__":
+    cli_args = node_cli.parse_node_args()
     # classes
     node = node.Node()
     node.logger = logger.Logger()
@@ -1990,7 +2001,14 @@ if __name__ == "__main__":
     node.is_mainnet = True
 
     config = options.Get()
-    config.read()
+    config.read(custom_config_file=cli_args.config_custom)
+    if cli_args.readiness_token:
+        config.readiness_token = cli_args.readiness_token
+    node_cli.validate_runtime_args(cli_args, config)
+    if cli_args.regnet_dir:
+        regnet.configure_data_dir(cli_args.regnet_dir)
+    node.wallet_file = str(node_cli.wallet_path(cli_args))
+    node.bind_host = node_cli.bind_host(cli_args, config)
     # classes
 
     node.app_version = VERSION
@@ -2025,20 +2043,26 @@ if __name__ == "__main__":
     node.old_sqlite = config.old_sqlite
     node.heavy = config.heavy
 
-    node.logger.app_log = log.log("node.log", node.debug_level, node.terminal_output)
+    node.logger.app_log = log.log(
+        str(node_cli.application_log_path(cli_args.regnet_dir)),
+        node.debug_level,
+        node.terminal_output,
+    )
     node.logger.app_log.warning("Configuration settings loaded")
     node.logger.app_log.warning(f"Python version: {node.py_version}")
 
+    setup_net_type()
+
     # upgrade wallet location after nuitka-required "files" folder introduction
-    if os.path.exists("../wallet.der") and not os.path.exists("wallet.der") and "Windows" in platform.system():
+    if cli_args.wallet_file is None and os.path.exists("../wallet.der") and cli_args.regnet_dir is None and not os.path.exists("wallet.der") and "Windows" in platform.system():
         print("Upgrading wallet location")
         os.rename("../wallet.der", "wallet.der")
     # upgrade wallet location after nuitka-required "files" folder introduction
 
-    if not node.full_ledger and os.path.exists(node.ledger_path) and node.is_mainnet:
-        os.remove(node.ledger_path)
-        node.logger.app_log.warning("Removed full ledger for hyperblock mode")
-    if not node.full_ledger:
+    if not node.full_ledger and not node.is_regnet:
+        if os.path.exists(node.ledger_path) and node.is_mainnet:
+            os.remove(node.ledger_path)
+            node.logger.app_log.warning("Removed full ledger for hyperblock mode")
         node.logger.app_log.warning("Cloning hyperblocks to ledger file")
         shutil.copy(node.hyper_path, node.ledger_path)  # hacked to remove all the endless checks
     try:
@@ -2049,7 +2073,6 @@ if __name__ == "__main__":
         extra_commands = node.plugin_manager.execute_filter_hook('extra_commands_prefixes', extra_commands)
         print("Extra prefixes: ", ",".join(extra_commands.keys()))
 
-        setup_net_type()
         load_keys()
 
         # needed for docker logs
@@ -2106,7 +2129,7 @@ if __name__ == "__main__":
 
             if not node.tor:
                 # Port 0 means to select an arbitrary unused port
-                host, port = "0.0.0.0", int(node.port)
+                host, port = node.bind_host, int(node.port)
 
                 ThreadedTCPServer.allow_reuse_address = True
                 ThreadedTCPServer.daemon_threads = True

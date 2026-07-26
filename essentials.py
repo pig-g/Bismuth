@@ -228,12 +228,12 @@ def sign_rsa(timestamp, address, recipient, amount, operation, openfield, key, p
         return False
 
 
-def keys_check(app_log, keyfile_name: str) -> None:
+def keys_check(app_log, keyfile_name: str, allow_legacy: bool = True) -> None:
     # TODO: move, make use of polysign module
     # key maintenance
-    if os.path.isfile("privkey.der") is True:
+    if allow_legacy and os.path.isfile("privkey.der") is True:
         app_log.warning("privkey.der found")
-    elif os.path.isfile("privkey_encrypted.der") is True:
+    elif allow_legacy and os.path.isfile("privkey_encrypted.der") is True:
         app_log.warning("privkey_encrypted.der found")
         os.rename("privkey_encrypted.der", "privkey.der")
 

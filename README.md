@@ -49,3 +49,21 @@ Market:
 
 ### CI:
 [![Build Status](https://travis-ci.org/bismuthfoundation/Bismuth.svg?branch=master)](https://travis-ci.org/bismuthfoundation/Bismuth)
+
+### Regnet tests
+
+The test suite starts an isolated regnet node bound to `127.0.0.1:3030`.
+It creates temporary ledger, index, peer, log, and wallet files and removes
+them with the pytest temporary directory.
+
+```bash
+./scripts/test_regnet.sh
+```
+
+The script recreates `.venv`, installs the dependency graph pinned in
+`tests/constraints.txt`, and runs the complete suite. Set `PYTHON` to select
+the Python 3.11 interpreter.
+
+The fixture waits for a successful `portget` RPC response instead of using a
+fixed startup delay. It fails with the node output if startup does not finish
+within 30 seconds or if port 3030 is already in use.

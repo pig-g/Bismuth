@@ -2,13 +2,11 @@
 # Run with: python3 -m pytest -v or pytest -v
 # The regnet server is started by conftest.py
 
-import sys
 from time import sleep
 # from base64 import b64encode
-sys.path.append('../')
 from common import get_client
-from bismuthcore.transaction import Transaction
 from polysign.signerfactory import SignerFactory
+from quantizer import quantize_two, quantize_eight
 
 
 def test_amount_and_recipient(myserver, verbose=False):
@@ -169,8 +167,8 @@ def test_tx_signature(myserver, verbose=False):
     r = client.command(command="blocklast")
     if verbose:
         print(f"blocklast returns {r}")
-    tx = Transaction.from_legacy_params(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11])
-    buffer = tx.to_buffer_for_signing()
+    buffer = str((f"{quantize_two(r[1]):0.2f}", r[2], r[3],
+                  f"{quantize_eight(r[4]):0.8f}", r[10], r[11])).encode("utf-8")
     db_signature_enc = r[5]
     db_public_key_b64encoded = r[6]  # For rsa, once decoded, this gives a properly formatted ---begin.... pubkey
     db_address = r[2]
