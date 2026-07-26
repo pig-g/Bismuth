@@ -6,9 +6,15 @@ Bismuth Readme
 * Dear CoinMarketCap, based on our communication, please update website URL to https://bismuth.cz
 
 ### Explorers:
+* https://bismuth1.terranbase.xyz
 * http://bismuth.online
 * https://bismuth.im
 * https://hypernodes.bismuth.live/?page_id=152
+
+### Mainnet seed list:
+`peers.txt` and `suggested_peers.txt` were refreshed on 2026-07-26 from nine
+public nodes that returned an allowed protocol version and synchronized
+`statusjson` data in two consecutive read-only probes at block 4,914,895.
 
 ### Wallets:
 * [Tornado Wallet](https://github.com/bismuthfoundation/TornadoWallet)

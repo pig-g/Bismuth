@@ -1,3 +1,5 @@
+import ipaddress
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,6 +9,27 @@ import pytest
 import regnet
 import options
 import essentials
+
+
+def test_mainnet_seed_lists_are_curated_public_peers():
+    repository = Path(__file__).parents[1]
+    peers = json.loads((repository / "peers.txt").read_text())
+    suggested = json.loads((repository / "suggested_peers.txt").read_text())
+    addresses = [ipaddress.ip_address(ip) for ip in peers]
+
+    assert peers == suggested
+    assert len(peers) == 9
+    assert set(peers.values()) == {"5658"}
+    assert all(
+        address.version == 4 and address.is_global and not address.is_multicast
+        for address in addresses
+    )
+
+
+def test_readme_lists_live_terranbase_explorer():
+    readme = (Path(__file__).parents[1] / "README.md").read_text()
+
+    assert "https://bismuth1.terranbase.xyz" in readme
 
 
 def test_node_cli_accepts_explicit_config_and_regnet_dir(tmp_path):
