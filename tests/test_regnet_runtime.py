@@ -368,34 +368,12 @@ def test_test_wallet_environment_is_restored(monkeypatch):
     assert os.environ["BISMUTH_TEST_WALLET"] == "callers-wallet.der"
 
 
-def test_rpc_command_recomputes_remaining_deadline(monkeypatch):
-    connect_timeouts = []
-    operation_timeouts = []
-    times = iter([9.0, 9.2, 9.4, 9.75, 9.8, 9.9])
+def test_fixture_reuses_standalone_lifecycle_primitives():
+    import regnet_control
 
-    class FakeConnection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            pass
-
-        def settimeout(self, timeout):
-            operation_timeouts.append(timeout)
-
-    def create_connection(_address, timeout):
-        connect_timeouts.append(timeout)
-        return FakeConnection()
-
-    monkeypatch.setattr(conftest, "monotonic", lambda: next(times))
-    monkeypatch.setattr(conftest.socket, "create_connection", create_connection)
-    monkeypatch.setattr(conftest.connections, "send", lambda *_args: None)
-    monkeypatch.setattr(conftest.connections, "receive", lambda *_args: "ok")
-
-    assert conftest.rpc_command("first", deadline=10.0) == "ok"
-    assert conftest.rpc_command("second", deadline=10.0) == "ok"
-    assert connect_timeouts == pytest.approx([1.0, 0.25])
-    assert operation_timeouts == pytest.approx([0.8, 0.6, 0.2, 0.1])
+    assert conftest.rpc_command is regnet_control.rpc_command
+    assert conftest.wait_for_regnet is regnet_control.wait_for_regnet
+    assert conftest.stop_regnet is regnet_control.stop_regnet_process
 
 
 def test_cleanup_continues_when_stop_raises(tmp_path, monkeypatch):

@@ -3,65 +3,18 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
-from subprocess import STDOUT, Popen, TimeoutExpired
+from subprocess import STDOUT, Popen
 import sys
-from time import monotonic, sleep
 
-import connections
 import pytest
+import regnet_control
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REGNET_CONFIG = Path(__file__).with_name("config_custom.txt")
-REGNET_PORT = 3030
-STARTUP_TIMEOUT = 30
-
-
-def remaining_timeout(deadline):
-    remaining = deadline - monotonic()
-    if remaining <= 0:
-        raise TimeoutError("Regnet readiness deadline expired")
-    return min(1.0, remaining)
-
-
-def rpc_command(command, deadline):
-    with socket.create_connection(
-        ("127.0.0.1", REGNET_PORT), timeout=remaining_timeout(deadline)
-    ) as connection:
-        connection.settimeout(remaining_timeout(deadline))
-        connections.send(connection, command)
-        connection.settimeout(remaining_timeout(deadline))
-        return connections.receive(connection)
-
-
-def wait_for_regnet(process, readiness_token, timeout=STARTUP_TIMEOUT):
-    deadline = monotonic() + timeout
-    last_error = None
-    while monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(f"Regnet exited with status {process.returncode}")
-        try:
-            response = rpc_command("portget", deadline)
-            runtime_config = rpc_command("api_getconfig", deadline)
-            if (
-                int(response["port"]) == REGNET_PORT
-                and runtime_config.get("readiness_token") == readiness_token
-            ):
-                return
-        except Exception as exc:
-            last_error = exc
-            sleep(min(0.25, max(0, deadline - monotonic())))
-    raise RuntimeError(f"Regnet was not ready after {timeout}s: {last_error}")
-
-
-def stop_regnet(process):
-    if process.poll() is not None:
-        return
-    process.terminate()
-    try:
-        process.wait(timeout=10)
-    except TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+REGNET_PORT = regnet_control.REGNET_PORT
+rpc_command = regnet_control.rpc_command
+wait_for_regnet = regnet_control.wait_for_regnet
+stop_regnet = regnet_control.stop_regnet_process
 
 
 def ensure_regnet_port_available():
