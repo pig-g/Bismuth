@@ -66,6 +66,7 @@ HELP = """Commands:
   balance <wallet-or-address>     query balancegetjson
   tx <last-or-txid>               query api_gettransaction
   sqltx <last-or-txid>            trace one tx in temporary ledger SQLite
+  sqlblock <tx-or-height>          map one RPC block to temporary ledger rows
   identity <last-or-txid>         verify signature, address binding, and tampering
   ledger <wallet-or-address> [n]  query addlistlimjson
   block <last-or-height>          show the latest or selected block
@@ -115,10 +116,15 @@ def generate_wallet(wallet_file):
 
 def redact(value):
     if isinstance(value, dict):
-        return {
-            key: "[REDACTED]" if key == "readiness_token" else redact(item)
-            for key, item in value.items()
-        }
+        transaction_like = "txid" in value
+        rendered = {}
+        for key, item in value.items():
+            if key in {"signature", "pubkey", "public_key"}:
+                continue
+            if transaction_like and key == "hash":
+                continue
+            rendered[key] = "[REDACTED]" if key == "readiness_token" else redact(item)
+        return rendered
     if isinstance(value, list):
         return [redact(item) for item in value]
     return value
@@ -219,6 +225,152 @@ def read_ledger_transaction(ledger_path, txid):
     return result
 
 
+def read_ledger_block(
+    ledger_path,
+    block_height,
+    *,
+    expected_block_hash,
+    expected_transaction_count,
+    expected_transaction_ids=None,
+    selected_transaction_id=None,
+):
+    if type(block_height) is not int or block_height < 1:
+        raise CLIError("sqlblock requires a positive integer block height")
+    if not is_hex_identifier(expected_block_hash):
+        raise CLIError("sqlblock requires a 56-character lowercase hex block hash")
+    if type(expected_transaction_count) is not int or expected_transaction_count < 1:
+        raise CLIError("sqlblock requires a positive RPC transaction count")
+    if expected_transaction_ids is not None and (
+        not isinstance(expected_transaction_ids, list)
+        or not all(is_transaction_id(txid) for txid in expected_transaction_ids)
+    ):
+        raise CLIError("sqlblock received malformed RPC transaction IDs")
+    if selected_transaction_id is not None and not is_transaction_id(
+        selected_transaction_id
+    ):
+        raise CLIError("sqlblock received a malformed selected transaction ID")
+
+    uri = Path(ledger_path).resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True, timeout=1) as connection:
+            rows = connection.execute(
+                "SELECT timestamp, address, recipient, amount, signature, block_hash, "
+                "fee, reward, operation, openfield FROM transactions "
+                "WHERE block_height = ? ORDER BY rowid",
+                (block_height,),
+            ).fetchall()
+            difficulties = connection.execute(
+                "SELECT difficulty FROM misc WHERE block_height = ? LIMIT 2",
+                (block_height,),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise CLIError(f"temporary ledger block query failed: {exc}") from exc
+
+    if not rows:
+        raise CLIError(f"temporary ledger has no block at height {block_height}")
+    if len(difficulties) != 1:
+        raise CLIError(
+            f"temporary ledger expected one difficulty row at height {block_height}"
+        )
+
+    block_hashes = {str(row[5]) for row in rows}
+    all_rows_share_block_identity = len(block_hashes) == 1
+    block_hash = next(iter(block_hashes)) if all_rows_share_block_identity else None
+    rendered_rows = []
+    for row in rows:
+        (
+            timestamp,
+            address,
+            recipient,
+            amount,
+            signature,
+            _row_block_hash,
+            fee,
+            reward,
+            operation,
+            openfield,
+        ) = row
+        try:
+            timestamp_value = Decimal(str(timestamp))
+            amount_value = Decimal(str(amount))
+            fee_value = Decimal(str(fee))
+            reward_value = Decimal(str(reward))
+        except InvalidOperation as exc:
+            raise CLIError("temporary ledger block has a malformed numeric field") from exc
+        if not all(
+            value.is_finite()
+            for value in (timestamp_value, amount_value, fee_value, reward_value)
+        ):
+            raise CLIError("temporary ledger block has a malformed numeric field")
+        rendered = {
+            "kind": (
+                "mining_reward"
+                if reward_value != Decimal("0")
+                else "user_transaction"
+            ),
+            "timestamp": f"{timestamp_value:.2f}",
+            "recipient": str(recipient),
+            "amount": f"{amount_value:.8f}",
+            "fee": f"{fee_value:.8f}",
+            "reward": f"{reward_value:.8f}",
+            "operation": str(operation),
+            "openfield": str(openfield),
+        }
+        if rendered["kind"] == "user_transaction":
+            txid = str(signature)[:56]
+            if not is_transaction_id(txid):
+                raise CLIError("temporary ledger contains a malformed transaction ID")
+            rendered.update({"txid": txid, "address": str(address)})
+        rendered_rows.append(rendered)
+
+    try:
+        difficulty_value = Decimal(str(difficulties[0][0]))
+    except InvalidOperation as exc:
+        raise CLIError("temporary ledger block has malformed difficulty") from exc
+    if not difficulty_value.is_finite():
+        raise CLIError("temporary ledger block has malformed difficulty")
+
+    rpc_block_hash_matches = block_hash == expected_block_hash
+    rpc_transaction_count_matches = len(rows) == expected_transaction_count
+    sqlite_transaction_ids = [
+        row["txid"] for row in rendered_rows if row["kind"] == "user_transaction"
+    ]
+    rpc_transaction_ids_match = (
+        expected_transaction_ids is None
+        or sorted(sqlite_transaction_ids) == sorted(expected_transaction_ids)
+    )
+    selected_transaction_matches = (
+        selected_transaction_id is None
+        or (
+            sqlite_transaction_ids.count(selected_transaction_id) == 1
+            and expected_transaction_ids is not None
+            and expected_transaction_ids.count(selected_transaction_id) == 1
+        )
+    )
+    result = {
+        "database": "temporary regnet ledger",
+        "tables": ["transactions", "misc"],
+        "block_height": block_height,
+        "block_hash": block_hash,
+        "transaction_count": len(rows),
+        "difficulty": str(difficulties[0][0]),
+        "all_rows_share_block_identity": all_rows_share_block_identity,
+        "rpc_block_hash_matches": rpc_block_hash_matches,
+        "rpc_transaction_count_matches": rpc_transaction_count_matches,
+        "rpc_transaction_ids_match": rpc_transaction_ids_match,
+        "selected_transaction_matches": selected_transaction_matches,
+        "rpc_matches_sqlite": (
+            all_rows_share_block_identity
+            and rpc_block_hash_matches
+            and rpc_transaction_count_matches
+            and rpc_transaction_ids_match
+            and selected_transaction_matches
+        ),
+        "rows": rendered_rows,
+    }
+    return result
+
+
 def verify_transaction_identity(raw_transaction, expected_txid):
     if not isinstance(raw_transaction, (list, tuple)) or len(raw_transaction) < 12:
         raise CLIError("identity requires one complete confirmed transaction")
@@ -265,7 +417,7 @@ def verify_transaction_identity(raw_transaction, expected_txid):
     }
 
 
-def validate_rpc_options(command, options):
+def validate_rpc_options(command, options, *, allow_unformatted_transaction=False):
     if command in {"api_getaddressinfo", "balancegetjson"}:
         if not is_hex_identifier(options[0]):
             raise CLIError(f"{command} requires a 56-character lowercase hex address")
@@ -280,6 +432,8 @@ def validate_rpc_options(command, options):
         if len(options) == 2:
             if type(options[1]) is not bool:
                 raise CLIError("api_gettransaction format flag must be true or false")
+            if options[1] is not True and not allow_unformatted_transaction:
+                raise CLIError("api_gettransaction requires formatted safe output")
     elif command == "api_getblockfromheight":
         if type(options[0]) is not int or options[0] < 1:
             raise CLIError("api_getblockfromheight requires a positive integer height")
@@ -315,6 +469,72 @@ class RegnetCLI:
 
     def address(self, value):
         return self.clients[value].address if value in self.clients else value
+
+    def resolve_last_confirmed_transaction(self):
+        if not self.last_txid:
+            raise CLIError("there is no last sent transaction yet")
+        if not self.last_tx_confirmed:
+            raise CLIError("last sent transaction is unconfirmed; run mine 1 first")
+        transaction = self.query_client.command(
+            command="api_gettransaction", options=[self.last_txid, True]
+        )
+        if not isinstance(transaction, dict):
+            raise CLIError("RPC returned no confirmed transaction")
+        if transaction.get("txid") != self.last_txid:
+            raise CLIError("RPC confirmed transaction ID does not match the last transaction")
+        block_height = transaction.get("blockheight")
+        if type(block_height) is not int or block_height < 1:
+            raise CLIError("RPC confirmed transaction has a malformed block height")
+        block_hash = transaction.get("blockhash")
+        if not is_hex_identifier(block_hash):
+            raise CLIError("RPC confirmed transaction has a malformed block hash")
+        return block_height, block_hash
+
+    def query_rpc_block(
+        self, block_height, *, expected_block_hash=None, selected_transaction_id=None
+    ):
+        response = self.query_client.command(
+            command="api_getblockfromheight", options=[block_height]
+        )
+        if not isinstance(response, dict):
+            raise CLIError(f"RPC returned no block at height {block_height}")
+        block = response.get(str(block_height), response.get(block_height))
+        if not isinstance(block, dict):
+            raise CLIError(f"RPC returned no block at height {block_height}")
+        if block.get("block_height") != block_height:
+            raise CLIError("RPC block height does not match the requested height")
+        block_hash = block.get("block_hash")
+        if not is_hex_identifier(block_hash):
+            raise CLIError("RPC block has a malformed block hash")
+        if expected_block_hash is not None and block_hash != expected_block_hash:
+            raise CLIError("RPC block hash does not match the confirmed transaction")
+        transactions = block.get("transactions")
+        if not isinstance(transactions, list) or not transactions:
+            raise CLIError("RPC block has no transaction list")
+
+        transaction_ids = []
+        for transaction in transactions:
+            if not isinstance(transaction, dict):
+                raise CLIError("RPC block contains a malformed transaction")
+            if "reward" not in transaction:
+                raise CLIError("RPC block contains a malformed reward")
+            try:
+                reward = Decimal(str(transaction["reward"]))
+            except InvalidOperation as exc:
+                raise CLIError("RPC block contains a malformed reward") from exc
+            if not reward.is_finite():
+                raise CLIError("RPC block contains a malformed reward")
+            if reward == Decimal("0"):
+                txid = transaction.get("txid")
+                if not is_transaction_id(txid):
+                    raise CLIError("RPC block contains a malformed transaction ID")
+                transaction_ids.append(txid)
+
+        if selected_transaction_id is not None and (
+            transaction_ids.count(selected_transaction_id) != 1
+        ):
+            raise CLIError("RPC block does not contain the selected transaction exactly once")
+        return response, block, transaction_ids
 
     def rpc(self, command, arguments):
         if command not in ALLOWED_RPC:
@@ -398,6 +618,38 @@ class RegnetCLI:
                         f"{amount} test BIS"
                     )
 
+    def print_sqlite_block(self, selector):
+        selected_transaction_id = None
+        expected_block_hash = None
+        if selector == "tx":
+            selected_transaction_id = self.last_txid
+            block_height, expected_block_hash = (
+                self.resolve_last_confirmed_transaction()
+            )
+        else:
+            block_height = coerce(selector)
+        if type(block_height) is not int or block_height < 1:
+            raise CLIError("sqlblock requires tx or a positive integer height")
+
+        _response, block, transaction_ids = self.query_rpc_block(
+            block_height,
+            expected_block_hash=expected_block_hash,
+            selected_transaction_id=selected_transaction_id,
+        )
+        transactions = block["transactions"]
+
+        result = read_ledger_block(
+            self.ledger_path,
+            block_height,
+            expected_block_hash=block["block_hash"],
+            expected_transaction_count=len(transactions),
+            expected_transaction_ids=transaction_ids,
+            selected_transaction_id=selected_transaction_id,
+        )
+        if not result["rpc_matches_sqlite"]:
+            raise CLIError("RPC block does not match temporary ledger rows")
+        print_json(result)
+
     def execute(self, line):
         try:
             words = shlex.split(line)
@@ -471,6 +723,11 @@ class RegnetCLI:
                 raise CLIError("there is no last transaction yet")
             print_json(read_ledger_transaction(self.ledger_path, txid))
             return True
+        if command == "sqlblock":
+            if len(arguments) != 1:
+                raise CLIError("usage: sqlblock <tx-or-height>")
+            self.print_sqlite_block(arguments[0])
+            return True
         if command == "identity":
             if len(arguments) != 1:
                 raise CLIError("usage: identity <last-or-txid>")
@@ -480,7 +737,11 @@ class RegnetCLI:
                 raise CLIError("there is no last transaction yet")
             if use_last and not self.last_tx_confirmed:
                 raise CLIError("last transaction is unconfirmed; run mine 1 first")
-            validate_rpc_options("api_gettransaction", [txid, False])
+            validate_rpc_options(
+                "api_gettransaction",
+                [txid, False],
+                allow_unformatted_transaction=True,
+            )
             raw_transaction = self.query_client.command(
                 "api_gettransaction", [txid, False]
             )
@@ -502,18 +763,14 @@ class RegnetCLI:
                 latest = self.query_client.command(command="blocklastjson")
                 height = latest["block_height"]
             elif height == "tx":
-                if not self.last_txid:
-                    raise CLIError("there is no last sent transaction yet")
-                if not self.last_tx_confirmed:
-                    raise CLIError(
-                        "last sent transaction is unconfirmed; run mine 1 first"
-                    )
-                transaction = self.query_client.command(
-                    command="api_gettransaction", options=[self.last_txid, True]
+                height, block_hash = self.resolve_last_confirmed_transaction()
+                response, _block, _transaction_ids = self.query_rpc_block(
+                    height,
+                    expected_block_hash=block_hash,
+                    selected_transaction_id=self.last_txid,
                 )
-                height = transaction.get("blockheight")
-                if height is None:
-                    raise CLIError("last transaction is not confirmed; mine a block first")
+                print_json(response)
+                return True
             self.rpc("api_getblockfromheight", [str(height)])
             return True
         if command == "blocks":

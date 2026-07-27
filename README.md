@@ -56,8 +56,15 @@ Market:
 ### CI:
 [![Build Status](https://travis-ci.org/bismuthfoundation/Bismuth.svg?branch=master)](https://travis-ci.org/bismuthfoundation/Bismuth)
 
-### Regnet tests
+### Practical learning labs:
 
+Start with [Practical Labs 0–5](labs/README.md) for newcomer instructions that
+cover the correct GitHub branch, ZIP or Git download, Python 3.11 setup, and the
+exact macOS/Linux commands. The labs use only an isolated local regnet,
+temporary wallets, and valueless test BIS; they do not connect to mainnet.
+
+
+### Regnet tests
 The test suite starts an isolated regnet node bound to `127.0.0.1:3030`.
 It creates temporary ledger, index, peer, log, and wallet files and removes
 them with the pytest temporary directory.
