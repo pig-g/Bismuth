@@ -1,12 +1,20 @@
+import base64
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
 import re
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
+
+from Cryptodome.Hash import SHA
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature import PKCS1_v1_5
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -114,6 +122,154 @@ def test_cli_adds_signature_derived_transaction_ids_to_ledger_rows():
     assert "txid" not in rows[1]
 
 
+def test_cli_reads_only_the_exact_transaction_from_temporary_ledger(tmp_path):
+    cli = load_cli_module()
+    ledger = tmp_path / "regmode.db"
+    txid = "AbCdEf0123456789+/AbCdEf0123456789+/AbCdEf0123456789+/Ab"
+    with sqlite3.connect(ledger) as connection:
+        connection.execute(
+            "CREATE TABLE transactions ("
+            "block_height INTEGER, timestamp NUMERIC, address TEXT, recipient TEXT, "
+            "amount NUMERIC, signature TEXT, public_key TEXT, block_hash TEXT, "
+            "fee NUMERIC, reward NUMERIC, operation TEXT, openfield TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (2, "1.00", "a" * 56, "b" * 56, "1.00000000", txid + "tail", "public", "c" * 56, "0.01000000", 0, "regnet-cli", "alice-to-bob"),
+        )
+
+    assert cli.read_ledger_transaction(ledger, "Z" * 56) == {
+        "database": "temporary regnet ledger",
+        "table": "transactions",
+        "row_found": False,
+        "txid": "Z" * 56,
+    }
+    assert cli.read_ledger_transaction(ledger, txid) == {
+        "database": "temporary regnet ledger",
+        "table": "transactions",
+        "row_found": True,
+        "txid": txid,
+        "block_height": 2,
+        "timestamp": 1,
+        "address": "a" * 56,
+        "recipient": "b" * 56,
+        "amount": 1,
+        "operation": "regnet-cli",
+        "openfield": "alice-to-bob",
+    }
+
+
+def test_sqltx_last_uses_the_owned_temporary_ledger(tmp_path, capsys):
+    cli = load_cli_module()
+    ledger = tmp_path / "regmode.db"
+    txid = "AbCdEf0123456789+/AbCdEf0123456789+/AbCdEf0123456789+/Ab"
+    with sqlite3.connect(ledger) as connection:
+        connection.execute(
+            "CREATE TABLE transactions ("
+            "block_height INTEGER, timestamp NUMERIC, address TEXT, recipient TEXT, "
+            "amount NUMERIC, signature TEXT, public_key TEXT, block_hash TEXT, "
+            "fee NUMERIC, reward NUMERIC, operation TEXT, openfield TEXT)"
+        )
+
+    console = cli.RegnetCLI(
+        SimpleNamespace(address="a" * 56),
+        SimpleNamespace(address="b" * 56),
+        ledger,
+    )
+    console.last_txid = txid
+
+    assert console.execute("sqltx last") is True
+    output = capsys.readouterr().out
+    assert '"database": "temporary regnet ledger"' in output
+    assert '"row_found": false' in output
+    assert str(ledger) not in output
+
+    for command in ("sqltx", "sqltx last extra", "sqltx ../../mainnet.db"):
+        try:
+            console.execute(command)
+        except cli.CLIError:
+            pass
+        else:
+            raise AssertionError(f"unsafe sqltx command accepted: {command}")
+
+    try:
+        cli.read_ledger_transaction(tmp_path / "missing.db", txid)
+    except cli.CLIError as exc:
+        assert "temporary ledger query failed" in str(exc)
+    else:
+        raise AssertionError("missing temporary ledger did not raise CLIError")
+
+
+def test_cli_verifies_identity_and_rejects_a_tampered_amount(tmp_path, capsys):
+    cli = load_cli_module()
+    key = RSA.generate(1024)
+    public_key = key.publickey().export_key().decode("utf-8")
+    encoded_public_key = base64.b64encode(public_key.encode()).decode()
+    address = hashlib.sha224(public_key.encode()).hexdigest()
+    timestamp = "1.00"
+    recipient = "b" * 56
+    amount = "1.00000000"
+    operation = "regnet-cli"
+    openfield = "alice-to-bob"
+    buffer = str(
+        (timestamp, address, recipient, amount, operation, openfield)
+    ).encode()
+    signature = base64.b64encode(PKCS1_v1_5.new(key).sign(SHA.new(buffer))).decode()
+    raw_transaction = [
+        2,
+        timestamp,
+        address,
+        recipient,
+        amount,
+        signature,
+        encoded_public_key,
+        "c" * 56,
+        "0.01000000",
+        0,
+        operation,
+        openfield,
+    ]
+
+    result = cli.verify_transaction_identity(raw_transaction, signature[:56])
+
+    assert result == {
+        "signature_valid": True,
+        "address_matches_public_key": True,
+        "txid_matches_signature_prefix": True,
+        "tampered_amount_rejected": True,
+        "public_key_sha256": hashlib.sha256(public_key.encode()).hexdigest(),
+    }
+    rendered = str(result)
+    assert signature not in rendered
+    assert public_key not in rendered
+    mismatch = cli.verify_transaction_identity(raw_transaction, "Z" * 56)
+    assert mismatch["txid_matches_signature_prefix"] is False
+
+    class ConfirmedClient:
+        def __init__(self, client_address):
+            self.address = client_address
+
+        def command(self, command, options):
+            assert command == "api_gettransaction"
+            assert options == [signature[:56], False]
+            return raw_transaction
+
+    console = cli.RegnetCLI(
+        ConfirmedClient(address),
+        SimpleNamespace(address=recipient),
+        tmp_path / "regmode.db",
+    )
+    console.last_txid = signature[:56]
+    console.last_tx_confirmed = True
+    assert console.execute("identity last") is True
+    output = capsys.readouterr().out
+    assert '"signature_valid": true' in output
+    assert '"address_matches_public_key": true' in output
+    assert '"tampered_amount_rejected": true' in output
+    assert signature not in output
+    assert public_key not in output
+
+
 def test_harness_allows_the_full_bounded_owned_cleanup_window():
     node_term_wait = 10
     node_kill_wait = 5
@@ -203,14 +359,17 @@ def test_regnet_cli_runs_real_rpc_exercise_and_cleans_up():
     exercise = "\n".join(
         (
             "wallets",
-            "mine",
+            "mine 1",
             "block last",
             "send alice bob 1",
             "mempool",
+            "sqltx last",
             "tx last",
             "block tx",
-            "mine",
+            "mine 1",
             "mempool",
+            "sqltx last",
+            "identity last",
             "tx last",
             "block tx",
             "blocks 10",
@@ -248,6 +407,14 @@ def test_regnet_cli_runs_real_rpc_exercise_and_cleans_up():
     assert '"balance": "1.00000000"' in result.stdout
     assert f'RPC api_gettransaction ["{txid}", true]' in result.stdout
     assert "RPC mpgetjson []" in result.stdout
+    assert result.stdout.count('"database": "temporary regnet ledger"') == 2
+    assert '"row_found": false' in result.stdout
+    assert '"row_found": true' in result.stdout
+    assert '"signature_valid": true' in result.stdout
+    assert '"address_matches_public_key": true' in result.stdout
+    assert '"txid_matches_signature_prefix": true' in result.stdout
+    assert '"tampered_amount_rejected": true' in result.stdout
+    assert '"public_key_sha256":' in result.stdout
     assert result.stdout.count(f'"txid": "{txid}"') >= 4
     assert '"transactions":' in result.stdout
     assert "BLOCK HISTORY" in result.stdout

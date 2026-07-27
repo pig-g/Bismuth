@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Interactive, allowlisted CLI for an owned local Bismuth regnet."""
 
+import base64
 from decimal import Decimal, InvalidOperation
+import hashlib
 import json
 from pathlib import Path
 import secrets
 import shlex
 import signal
+import sqlite3
 from subprocess import STDOUT, Popen
 import sys
 import tempfile
@@ -16,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bismuthclient.bismuthclient import BismuthClient
+from polysign.signerfactory import SignerFactory
 import regnet_control
 
 SERVER = {f"{regnet_control.REGNET_HOST}:{regnet_control.REGNET_PORT}"}
@@ -61,6 +65,8 @@ HELP = """Commands:
   send <from> <to> <amount>       sign locally and send test BIS
   balance <wallet-or-address>     query balancegetjson
   tx <last-or-txid>               query api_gettransaction
+  sqltx <last-or-txid>            trace one tx in temporary ledger SQLite
+  identity <last-or-txid>         verify signature, address binding, and tampering
   ledger <wallet-or-address> [n]  query addlistlimjson
   block <last-or-height>          show the latest or selected block
   block tx                        show the last sent transaction's block
@@ -169,6 +175,96 @@ def add_transaction_ids(rows):
     return enriched
 
 
+def read_ledger_transaction(ledger_path, txid):
+    if not is_transaction_id(txid):
+        raise CLIError("sqltx requires a 56-character base64 transaction ID")
+    result = {
+        "database": "temporary regnet ledger",
+        "table": "transactions",
+        "row_found": False,
+        "txid": txid,
+    }
+    uri = Path(ledger_path).resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True, timeout=1) as connection:
+            rows = connection.execute(
+                "SELECT block_height, timestamp, address, recipient, amount, "
+                "operation, openfield FROM transactions "
+                "WHERE substr(signature, 1, 56) = ? LIMIT 2",
+                (txid,),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise CLIError(f"temporary ledger query failed: {exc}") from exc
+    if len(rows) > 1:
+        raise CLIError("transaction ID matched more than one ledger row")
+    if not rows:
+        return result
+    result.update(
+        dict(
+            zip(
+                (
+                    "block_height",
+                    "timestamp",
+                    "address",
+                    "recipient",
+                    "amount",
+                    "operation",
+                    "openfield",
+                ),
+                rows[0],
+            )
+        )
+    )
+    result["row_found"] = True
+    return result
+
+
+def verify_transaction_identity(raw_transaction, expected_txid):
+    if not isinstance(raw_transaction, (list, tuple)) or len(raw_transaction) < 12:
+        raise CLIError("identity requires one complete confirmed transaction")
+    timestamp = f"{Decimal(str(raw_transaction[1])):.2f}"
+    address = str(raw_transaction[2])
+    recipient = str(raw_transaction[3])
+    amount = f"{Decimal(str(raw_transaction[4])):.8f}"
+    signature = str(raw_transaction[5])
+    encoded_public_key = str(raw_transaction[6])
+    operation = str(raw_transaction[10])
+    openfield = str(raw_transaction[11])
+    buffer = str(
+        (timestamp, address, recipient, amount, operation, openfield)
+    ).encode("utf-8")
+    try:
+        SignerFactory.verify_bis_signature(
+            signature, encoded_public_key, buffer, address
+        )
+    except Exception as exc:
+        raise CLIError(f"confirmed transaction signature verification failed: {exc}") from exc
+
+    public_key = base64.b64decode(encoded_public_key).decode("utf-8")
+    verifier = SignerFactory.address_to_signer(address)
+    address_matches = verifier.public_key_to_address(public_key) == address
+    tampered_amount = f"{Decimal(amount) + Decimal('0.00000001'):.8f}"
+    tampered_buffer = str(
+        (timestamp, address, recipient, tampered_amount, operation, openfield)
+    ).encode("utf-8")
+    try:
+        SignerFactory.verify_bis_signature(
+            signature, encoded_public_key, tampered_buffer, address
+        )
+    except Exception:
+        tampered_rejected = True
+    else:
+        tampered_rejected = False
+
+    return {
+        "signature_valid": True,
+        "address_matches_public_key": address_matches,
+        "txid_matches_signature_prefix": signature[:56] == expected_txid,
+        "tampered_amount_rejected": tampered_rejected,
+        "public_key_sha256": hashlib.sha256(public_key.encode()).hexdigest(),
+    }
+
+
 def validate_rpc_options(command, options):
     if command in {"api_getaddressinfo", "balancegetjson"}:
         if not is_hex_identifier(options[0]):
@@ -207,8 +303,9 @@ def validate_rpc_options(command, options):
 
 
 class RegnetCLI:
-    def __init__(self, alice, bob):
+    def __init__(self, alice, bob, ledger_path):
         self.clients = {"alice": alice, "bob": bob}
+        self.ledger_path = Path(ledger_path)
         self.last_txid = None
         self.last_tx_confirmed = False
 
@@ -366,6 +463,29 @@ class RegnetCLI:
                 raise CLIError("last transaction is unconfirmed; run mine 1 first")
             self.rpc("api_gettransaction", [txid, "true"])
             return True
+        if command == "sqltx":
+            if len(arguments) != 1:
+                raise CLIError("usage: sqltx <last-or-txid>")
+            txid = self.last_txid if arguments[0] == "last" else arguments[0]
+            if not txid:
+                raise CLIError("there is no last transaction yet")
+            print_json(read_ledger_transaction(self.ledger_path, txid))
+            return True
+        if command == "identity":
+            if len(arguments) != 1:
+                raise CLIError("usage: identity <last-or-txid>")
+            use_last = arguments[0] == "last"
+            txid = self.last_txid if use_last else arguments[0]
+            if not txid:
+                raise CLIError("there is no last transaction yet")
+            if use_last and not self.last_tx_confirmed:
+                raise CLIError("last transaction is unconfirmed; run mine 1 first")
+            validate_rpc_options("api_gettransaction", [txid, False])
+            raw_transaction = self.query_client.command(
+                "api_gettransaction", [txid, False]
+            )
+            print_json(verify_transaction_identity(raw_transaction, txid))
+            return True
         if command == "ledger":
             if not 1 <= len(arguments) <= 2:
                 raise CLIError("usage: ledger <wallet-or-address> [limit]")
@@ -411,7 +531,11 @@ class RegnetCLI:
 
 
 def run_cli(alice_wallet, bob_wallet, process):
-    cli = RegnetCLI(create_client(alice_wallet), generate_wallet(bob_wallet))
+    cli = RegnetCLI(
+        create_client(alice_wallet),
+        generate_wallet(bob_wallet),
+        alice_wallet.parent / "regmode.db",
+    )
     print("BISMUTH REGNET CLI")
     print("Owned local node: 127.0.0.1:3030 (no mainnet, no real BIS)")
     print("Type help for commands. Type quit to stop and delete all session state.")
