@@ -1,6 +1,7 @@
 import importlib.util
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
@@ -66,6 +67,39 @@ def test_cli_signal_exception_bypasses_dependency_exception_handlers():
     assert not issubclass(cli.SessionInterrupted, Exception)
     assert issubclass(session.SessionInterrupted, BaseException)
     assert not issubclass(session.SessionInterrupted, Exception)
+
+
+def test_cli_accepts_signature_derived_transaction_ids_without_weakening_hash_validation():
+    cli = load_cli_module()
+    txid = "AbCdEf0123456789+/AbCdEf0123456789+/AbCdEf0123456789+/Ab"
+    assert len(txid) == 56
+
+    cli.validate_rpc_options("api_gettransaction", [txid, True])
+
+    for invalid_txid in (txid[:-1], txid[:-1] + "%", "a" * 57):
+        try:
+            cli.validate_rpc_options("api_gettransaction", [invalid_txid, True])
+        except cli.CLIError:
+            pass
+        else:
+            raise AssertionError(f"accepted malformed transaction ID: {invalid_txid!r}")
+    try:
+        cli.validate_rpc_options("api_getblockfromhash", [txid])
+    except cli.CLIError:
+        pass
+    else:
+        raise AssertionError("accepted a non-hex block hash")
+
+
+def test_cli_adds_signature_derived_transaction_ids_to_ledger_rows():
+    cli = load_cli_module()
+    txid = "AbCdEf0123456789+/AbCdEf0123456789+/AbCdEf0123456789+/Ab"
+    rows = cli.add_transaction_ids(
+        [{"signature": txid + "signature-tail"}, {"signature": "0"}]
+    )
+
+    assert rows[0]["txid"] == txid
+    assert "txid" not in rows[1]
 
 
 def test_harness_allows_the_full_bounded_owned_cleanup_window():
@@ -134,14 +168,16 @@ def test_regnet_cli_runs_real_rpc_exercise_and_cleans_up():
             "mine",
             "block last",
             "send alice bob 1",
-            "block tx",
             "mempool",
-            "mine",
-            "balance bob",
             "tx last",
-            "ledger bob 5",
             "block tx",
-            "blocks 5",
+            "mine",
+            "mempool",
+            "tx last",
+            "block tx",
+            "blocks 10",
+            "balance bob",
+            "ledger bob 10",
             "rpc api_getblockfromheight",
             "rpc api_getaddressinfo {}",
             "rpc api_getbalance not-a-list -99",
@@ -161,14 +197,20 @@ def test_regnet_cli_runs_real_rpc_exercise_and_cleans_up():
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    txid_match = re.search(r"transaction: (\S+)", result.stdout)
+    assert txid_match is not None
+    txid = txid_match.group(1)
     assert "BISMUTH REGNET CLI" in result.stdout
     assert "alice:" in result.stdout
     assert "bob:" in result.stdout
     assert "RPC regtest_generate" in result.stdout
     assert "alice -> bob: 1.00000000 test BIS" in result.stdout
+    assert "last transaction is unconfirmed; run mine 1 first" in result.stdout
     assert "last sent transaction is unconfirmed; run mine 1 first" in result.stdout
     assert '"balance": "1.00000000"' in result.stdout
-    assert '"txid":' in result.stdout
+    assert f'RPC api_gettransaction ["{txid}", true]' in result.stdout
+    assert "RPC mpgetjson []" in result.stdout
+    assert result.stdout.count(f'"txid": "{txid}"') >= 4
     assert '"transactions":' in result.stdout
     assert "BLOCK HISTORY" in result.stdout
     assert "height 1" in result.stdout

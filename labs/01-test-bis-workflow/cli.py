@@ -19,6 +19,10 @@ from bismuthclient.bismuthclient import BismuthClient
 import regnet_control
 
 SERVER = {f"{regnet_control.REGNET_HOST}:{regnet_control.REGNET_PORT}"}
+HEX_IDENTIFIER_CHARACTERS = frozenset("0123456789abcdef")
+TRANSACTION_ID_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+)
 ALLOWED_RPC = {
     "addlistlimjson",
     "api_getaddressinfo",
@@ -62,7 +66,7 @@ HELP = """Commands:
   block tx                        show the last sent transaction's block
   blocks [count]                  show recent block/transaction history
   blocks <start> <count>          show a block range (maximum 50)
-  mempool                         query api_mempool
+  mempool                         query mpgetjson
   rpc <allowed-command> [args]    execute an allowlisted Bismuth command
   help                            show this help
   quit                            stop and delete the local regnet
@@ -135,29 +139,56 @@ def coerce(value):
         return value
 
 
-def is_identifier(value):
+def is_hex_identifier(value):
     return (
         isinstance(value, str)
         and len(value) == 56
-        and all(character in "0123456789abcdef" for character in value)
+        and all(character in HEX_IDENTIFIER_CHARACTERS for character in value)
     )
+
+
+def is_transaction_id(value):
+    return (
+        isinstance(value, str)
+        and len(value) == 56
+        and all(character in TRANSACTION_ID_CHARACTERS for character in value)
+    )
+
+
+def add_transaction_ids(rows):
+    enriched = []
+    for row in rows:
+        if not isinstance(row, dict):
+            enriched.append(row)
+            continue
+        item = dict(row)
+        signature = item.get("signature")
+        if isinstance(signature, str) and is_transaction_id(signature[:56]):
+            item["txid"] = signature[:56]
+        enriched.append(item)
+    return enriched
 
 
 def validate_rpc_options(command, options):
     if command in {"api_getaddressinfo", "balancegetjson"}:
-        if not is_identifier(options[0]):
+        if not is_hex_identifier(options[0]):
             raise CLIError(f"{command} requires a 56-character lowercase hex address")
-    elif command in {"api_getblockfromhash", "api_gettransaction"}:
-        if not is_identifier(options[0]):
+    elif command == "api_getblockfromhash":
+        if not is_hex_identifier(options[0]):
             raise CLIError(f"{command} requires a 56-character lowercase hex ID")
-        if command == "api_gettransaction" and len(options) == 2:
+    elif command == "api_gettransaction":
+        if not is_transaction_id(options[0]):
+            raise CLIError(
+                "api_gettransaction requires a 56-character base64 transaction ID"
+            )
+        if len(options) == 2:
             if type(options[1]) is not bool:
                 raise CLIError("api_gettransaction format flag must be true or false")
     elif command == "api_getblockfromheight":
         if type(options[0]) is not int or options[0] < 1:
             raise CLIError("api_getblockfromheight requires a positive integer height")
     elif command == "addlistlimjson":
-        if not is_identifier(options[0]):
+        if not is_hex_identifier(options[0]):
             raise CLIError("addlistlimjson requires a 56-character lowercase hex address")
         if type(options[1]) is not int or not 1 <= options[1] <= 50:
             raise CLIError("addlistlimjson limit must be an integer from 1 to 50")
@@ -166,7 +197,7 @@ def validate_rpc_options(command, options):
         if (
             not isinstance(addresses, list)
             or not 1 <= len(addresses) <= 50
-            or not all(is_identifier(address) for address in addresses)
+            or not all(is_hex_identifier(address) for address in addresses)
         ):
             raise CLIError(
                 "api_getbalance requires a JSON list of 1-50 lowercase hex addresses"
@@ -222,6 +253,8 @@ class RegnetCLI:
         response = self.query_client.command(command=command, options=options)
         if command == "regtest_generate" and self.last_txid:
             self.last_tx_confirmed = True
+        if command in {"addlistlimjson", "mpgetjson"}:
+            response = add_transaction_ids(response)
         print_json(response)
         return response
 
@@ -367,7 +400,7 @@ class RegnetCLI:
             self.print_block_history(arguments)
             return True
         if command == "mempool":
-            self.rpc("api_mempool", [])
+            self.rpc("mpgetjson", [])
             return True
         if command == "rpc":
             if not arguments:
