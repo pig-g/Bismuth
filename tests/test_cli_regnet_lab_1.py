@@ -14,12 +14,24 @@ LAB_DIR = REPO_ROOT / "labs" / "01-test-bis-workflow"
 SESSION_PATH = LAB_DIR / "session.py"
 CLI_PATH = LAB_DIR / "cli.py"
 OWNED_CLEANUP_TIMEOUT = 25
+OWNED_STARTUP_TIMEOUT = 30
 
 
 def port_is_open(port):
     with socket.socket() as probe:
         probe.settimeout(0.2)
         return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def terminate_owned_program(process):
+    if process.poll() is not None:
+        return
+    process.send_signal(signal.SIGTERM)
+    try:
+        process.wait(timeout=OWNED_CLEANUP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
 
 
 def run_owned_program(program, *, input_text, timeout):
@@ -109,6 +121,34 @@ def test_harness_allows_the_full_bounded_owned_cleanup_window():
     assert OWNED_CLEANUP_TIMEOUT > node_term_wait + node_kill_wait + port_close_wait
 
 
+def test_harness_uses_graceful_owned_cleanup_before_force_kill():
+    events = []
+
+    class SlowProcess:
+        def poll(self):
+            return None
+
+        def send_signal(self, sent_signal):
+            events.append(("signal", sent_signal))
+
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            if timeout == OWNED_CLEANUP_TIMEOUT:
+                raise subprocess.TimeoutExpired("owned", timeout)
+
+        def kill(self):
+            events.append(("kill", None))
+
+    terminate_owned_program(SlowProcess())
+
+    assert events == [
+        ("signal", signal.SIGTERM),
+        ("wait", OWNED_CLEANUP_TIMEOUT),
+        ("kill", None),
+        ("wait", 5),
+    ]
+
+
 def test_local_session_runs_round_trip_and_cleans_up_regnet():
     assert not port_is_open(3030)
 
@@ -141,7 +181,7 @@ def test_local_session_termination_cleans_up_regnet(tmp_path):
             text=True,
         )
         try:
-            deadline = time.monotonic() + 15
+            deadline = time.monotonic() + OWNED_STARTUP_TIMEOUT
             while time.monotonic() < deadline and not port_is_open(3030):
                 assert process.poll() is None
                 time.sleep(0.05)
@@ -149,9 +189,7 @@ def test_local_session_termination_cleans_up_regnet(tmp_path):
             process.send_signal(signal.SIGTERM)
             process.wait(timeout=OWNED_CLEANUP_TIMEOUT)
         finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
+            terminate_owned_program(process)
         output.seek(0)
         text = output.read()
 
@@ -264,7 +302,7 @@ def test_regnet_cli_interrupt_cleans_owned_node(tmp_path):
             env=environment,
         )
         try:
-            deadline = time.monotonic() + 15
+            deadline = time.monotonic() + OWNED_STARTUP_TIMEOUT
             while time.monotonic() < deadline:
                 assert process.poll() is None
                 if "regnet> " in output_path.read_text():
@@ -275,9 +313,7 @@ def test_regnet_cli_interrupt_cleans_owned_node(tmp_path):
             process.send_signal(signal.SIGINT)
             process.wait(timeout=OWNED_CLEANUP_TIMEOUT)
         finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
+            terminate_owned_program(process)
         output.seek(0)
         text = output.read()
 
