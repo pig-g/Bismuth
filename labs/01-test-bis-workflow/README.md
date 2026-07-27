@@ -11,16 +11,104 @@ find it in both the ledger and its block.
 > databases live under the system temporary directory and are removed by
 > `stop`.
 
-## Run the workflow
+## Explore the regnet directly (Linux or macOS)
 
 First complete [Lab 0](../00-regnet-first-run/README.md), which creates the
-repository-local `.venv`. Then run these commands from the repository root:
+repository-local `.venv`. Start the interactive educational CLI from the
+repository root:
+
+```bash
+.venv/bin/python ./labs/01-test-bis-workflow/cli.py
+```
+
+The app owns a temporary local node and two wallets for the entire console
+session. Try this exercise one line at a time after the `regnet>` prompt:
+
+```text
+wallets
+mine
+block last
+send alice bob 1
+mempool
+mine
+balance bob
+tx last
+ledger bob 5
+block last
+block tx
+blocks 10
+rpc api_getconfig
+help
+quit
+```
+
+This lets learners directly execute safe Bismuth API commands and see their JSON
+responses. `send` signs locally with the selected temporary wallet; key material
+is never displayed or sent to the node. `quit`, EOF, interruption, and errors
+stop the owned node and remove the wallets and ledger.
+
+`block last` always shows the current chain tip, including a reward-only block.
+`block tx` shows the block containing the most recently sent transaction, so run
+`mine 1` (or `rpc regtest_generate 1`) after `send` first. If that transaction
+is still in the mempool, the CLI returns immediately with an instruction instead
+of waiting on the node. `blocks 10` is the compact local block-explorer view: it
+lists recent heights, hashes, rewards, and included transactions. Use
+`blocks <start> <count>` for a specific range.
+
+The `rpc` command uses an explicit educational allowlist. Read/query commands
+and `regtest_generate` are available; process control, key export, remote
+signing, mainnet access, and destructive commands such as
+`api_clearmempool` are blocked. The legacy repository `commands.py` does not
+provide these safety boundaries and should not be used for this lab.
+Allowed RPC arguments are type- and range-checked before transmission, so a
+malformed address, identifier, height, limit, or confirmation count fails
+immediately instead of waiting on a node-side handler.
+
+## Run an automatic Alice/Bob round trip
+
+For a complete demonstration without typing each command, run:
+
+```bash
+.venv/bin/python ./labs/01-test-bis-workflow/session.py
+```
+
+This is not a test-status-only command. It starts an isolated local node, creates
+temporary Alice and Bob wallets, mines local funds, sends `1` test BIS from
+Alice to Bob, sends `0.25` test BIS from Bob back to Alice, and prints both
+transaction IDs, confirmation blocks, addresses, and final balances. The output
+contains these lines with real values from that run:
+
+```text
+LOCAL REGNET SESSION PASS
+Alice: <local address>
+Bob: <local address>
+Alice -> Bob: 1.00000000 test BIS
+Alice transaction: <transaction ID>
+Bob -> Alice: 0.25000000 test BIS
+Bob transaction: <transaction ID>
+Bob final balance: 0.73988000 test BIS
+Local regnet stopped; temporary wallets and ledger removed.
+```
+
+No private key is printed. The command always stops the node and removes both
+temporary wallets and the local ledger when it succeeds, fails, or is
+interrupted.
+
+## Keep the standalone regnet running (Linux only)
+
+The separate lifecycle currently requires Linux `/proc` and pidfd ownership
+checks. On Linux, use three commands when you want the node to remain running
+between operations:
 
 ```bash
 ./scripts/regnet start
 .venv/bin/python ./labs/01-test-bis-workflow/run.py
 ./scripts/regnet stop
 ```
+
+Do not use this three-command path on macOS yet. Use `session.py` or `cli.py`;
+each directly owns its node child and therefore provides bounded,
+cross-platform cleanup without unsafe PID signalling.
 
 The workflow discovers the wallet from ownership-verified standalone metadata;
 you do not copy a wallet path or use a wallet from the repository. It creates a

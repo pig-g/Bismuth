@@ -15,8 +15,6 @@ from common import get_client
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LAB_DIR = REPO_ROOT / "labs" / "01-test-bis-workflow"
 WORKFLOW_PATH = LAB_DIR / "run.py"
-
-
 def load_workflow_module():
     spec = importlib.util.spec_from_file_location("lab_1_workflow", WORKFLOW_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -64,6 +62,18 @@ def test_lab_one_documents_the_exact_practical_workflow():
         "./scripts/regnet start",
         ".venv/bin/python ./labs/01-test-bis-workflow/run.py",
         "./scripts/regnet stop",
+        ".venv/bin/python ./labs/01-test-bis-workflow/session.py",
+        ".venv/bin/python ./labs/01-test-bis-workflow/cli.py",
+        "Alice -> Bob",
+        "Bob -> Alice",
+        "mine",
+        "rpc regtest_generate 1",
+        "send alice bob 1",
+        "balance bob",
+        "tx last",
+        "block last",
+        "block tx",
+        "blocks 10",
         "TEST BIS WORKFLOW PASS",
         "regtest_generate",
         "balancegetjson",

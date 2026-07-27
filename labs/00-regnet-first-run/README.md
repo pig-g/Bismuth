@@ -45,7 +45,8 @@ readiness, temporary files, and cleanup.
 
 ## Run regnet while developing
 
-After the clean verifier has created `.venv`, start a standalone local regnet:
+After the clean verifier has created `.venv`, Linux users can start a standalone
+local regnet:
 
 ```bash
 ./scripts/regnet start
@@ -63,7 +64,15 @@ Standalone state lives under the system temporary directory, never in the
 repository or a mainnet wallet. `stop` verifies process ownership, uses bounded
 SIGTERM/SIGKILL cleanup through a Linux pidfd, confirms port `3030` is closed,
 and removes that state. On systems without pidfd support, `stop` refuses to
-signal a PID rather than risk stopping an unrelated process.
+signal a PID rather than risk stopping an unrelated process. The standalone
+three-command lifecycle is therefore Linux-only. On macOS, run the owned
+cross-platform transaction session instead:
+
+```bash
+.venv/bin/python ./labs/01-test-bis-workflow/cli.py
+# or the automatic round trip:
+.venv/bin/python ./labs/01-test-bis-workflow/session.py
+```
 
 The operating-system account running these commands is the trust boundary.
 Lifecycle locking protects concurrent `scripts/regnet` invocations; it does not
