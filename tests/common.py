@@ -2,6 +2,7 @@
 # TODO: benchmark both, see use in polysign, signer_rsa (then take from there, class method)
 
 from bismuthclient.bismuthclient import BismuthClient
+import os
 from os.path import isfile
 
 def normalize_key(a):
@@ -24,9 +25,10 @@ def normalize_key_alt(s: str) -> str:
 
 def get_client(verbose: bool=False):
     # Helper to get a working and conencted BismuthClient no matter the test context
+    explicit_wallet = os.environ.get("BISMUTH_TEST_WALLET")
     file_first = "../datadir/wallet.der"
     file_second = "../wallet.der"
-    wallet_file =  file_first if isfile(file_first) else file_second
+    wallet_file = explicit_wallet or (file_first if isfile(file_first) else file_second)
     client = BismuthClient(servers_list={'127.0.0.1:3030'}, wallet_file=wallet_file, verbose=verbose)
     # Will raise and fail test if node is not connectible
     assert client is not None

@@ -3,6 +3,7 @@ datadir
 .pydevproject
 .idea/
 .pytest_cache
+.venv/
 *.project
 build/
 dist/

@@ -113,11 +113,15 @@ class Get:
 
         # print(self.__dict__)
 
-    def read(self):
+    def read(self, config_file="config.txt", custom_config_file=None):
         # first of all, load from default config so we have all needed params
-        self.load_file("config.txt")
+        self.load_file(config_file)
         # then override with optional custom config
-        if path.exists("config_custom.txt"):
+        if custom_config_file is not None:
+            if not path.isfile(custom_config_file):
+                raise FileNotFoundError(custom_config_file)
+            self.load_file(custom_config_file)
+        elif path.isfile("config_custom.txt"):
             self.load_file("config_custom.txt")
         file_name = "./mandatory_message.json"
         if path.isfile(file_name):

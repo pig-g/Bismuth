@@ -4,7 +4,7 @@ egress=True
 trace_db_calls=False
 heavy3_path=./heavy3a.bin
 
-debug=True
+debug=False
 port=3030
 regnet=True
 heavy=False
