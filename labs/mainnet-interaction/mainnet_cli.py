@@ -11,6 +11,7 @@ Usage
   <python> ./mainnet_cli.py block <height>
   <python> ./mainnet_cli.py balance <address>
   <python> ./mainnet_cli.py tx <txid>
+  <python> ./mainnet_cli.py net probe    # Phase 0: per-seed network health
   <python> ./mainnet_cli.py wallet new <path>
   <python> ./mainnet_cli.py send --wallet <path> --to <addr> --amount <amt> [--op x] [--data y]
 
@@ -28,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from bismuthclient.bismuthclient import BismuthClient  # noqa: E402
 import mainnet_rpc  # noqa: E402
+import net_probe  # noqa: E402
 
 # Public Bismuth mainnet node (port 5658 is the node protocol port). One is
 # enough for the CLI; BismuthClient can also be pointed at any reachable seed.
@@ -49,6 +51,11 @@ MAINNET_SEEDS = [
 
 def make_client(wallet_file=None):
     return BismuthClient(servers_list=MAINNET_SEEDS, wallet_file=str(wallet_file or ""))
+
+
+def probe_client(seed):
+    """Fresh client pointed at exactly one seed (for per-seed diag polling)."""
+    return BismuthClient(servers_list=[seed])
 
 
 def print_json(value):
@@ -118,6 +125,15 @@ def cmd_wallet_new(path):
     print("\nOnly the public address is shown. The private key stays in this file on your machine.")
 
 
+def cmd_net_probe():
+    """Poll every public seed and print a network-health probe. Read-only."""
+    result = net_probe.probe_all(probe_client, MAINNET_SEEDS)
+    print(net_probe.report(result))
+    if result.diverging_seeds():
+        return 2
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -165,6 +181,8 @@ def main(argv):
             return cmd_wallet_new(args[1]) or 0
         if command == "send":
             return cmd_send(**parse_send_options(args)) or 0
+        if command == "net" and args and args[0] == "probe":
+            return cmd_net_probe() or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
