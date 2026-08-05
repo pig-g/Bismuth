@@ -65,6 +65,11 @@ temporary wallets, and valueless test BIS; Labs 6–8 are short read-only
 simulations (difficulty feedback, fork rules, token reindex) that start no node.
 They do not connect to mainnet.
 
+A separate optional [Mainnet Interaction Track](labs/mainnet-interaction/README.md)
+observes the real Bismuth mainnet (read only) and, at the learner's choice with a
+small trial BIS balance, locally signs and sends a small trial amount. It never
+sends a private key to a node and always prints a real-mainnet warning.
+
 
 ### Regnet tests
 The test suite starts an isolated regnet node bound to `127.0.0.1:3030`.

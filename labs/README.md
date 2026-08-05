@@ -23,6 +23,10 @@ No existing Bismuth installation, wallet, BIS balance, Docker container, or main
 
 Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3. Labs 6–8 are short read-only simulations: Lab 6 shows the difficulty feedback controller, Lab 7 walks the `Fork` consensus rules, and Lab 8 models token issue/transfer/reindex.
 
+### Separate mainnet track
+
+After Labs 0–8, the optional [Mainnet Interaction Track](mainnet-interaction/README.md) talks to the **real Bismuth mainnet** (read only) and, if you add a small trial BIS balance yourself, lets you locally sign and send a **small trial amount**. It is strictly separate from the regnet CLI and always prints a REAL-MAINNET warning. Because Bismuth has no testnet, this is how you safely touch the real chain.
+
 ## 1. Prerequisites
 
 You need:
