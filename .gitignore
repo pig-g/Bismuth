@@ -4,6 +4,7 @@ datadir
 .idea/
 .pytest_cache
 .venv/
+.venv-mainnet/
 *.project
 build/
 dist/
