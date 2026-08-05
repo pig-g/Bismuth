@@ -43,6 +43,34 @@ To run the same complete regnet test path directly:
 Do not start the node manually for tests. The pytest fixture owns startup,
 readiness, temporary files, and cleanup.
 
+## Run regnet while developing
+
+After the clean verifier has created `.venv`, start a standalone local regnet:
+
+```bash
+./scripts/regnet start
+./scripts/regnet status
+```
+
+The start command prints the isolated wallet and log paths. Regnet remains on
+`127.0.0.1:3030` until you stop it:
+
+```bash
+./scripts/regnet stop
+```
+
+Standalone state lives under the system temporary directory, never in the
+repository or a mainnet wallet. `stop` verifies process ownership, uses bounded
+SIGTERM/SIGKILL cleanup through a Linux pidfd, confirms port `3030` is closed,
+and removes that state. On systems without pidfd support, `stop` refuses to
+signal a PID rather than risk stopping an unrelated process.
+
+The operating-system account running these commands is the trust boundary.
+Lifecycle locking protects concurrent `scripts/regnet` invocations; it does not
+attempt to defend against another process with the same UID deliberately
+rewriting its private runtime, because that process can already signal the node
+and modify all files owned by the account.
+
 ## Write a regnet test
 
 Add a test under `tests/` and request the session-scoped `myserver` fixture. Use
