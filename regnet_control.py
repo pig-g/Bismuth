@@ -27,14 +27,24 @@ RECOVERY_NAME = "recovery.json"
 MAX_RPC_RESPONSE_BYTES = 1024 * 1024
 
 RECOVERY_LAUNCHER = r"""
-import json, os, pathlib, sys
+import json, os, pathlib, subprocess, sys
+try:
+    from datetime import datetime
+except ImportError:
+    datetime = None
 recovery = pathlib.Path(sys.argv[1])
 target = sys.argv[2:]
-raw = pathlib.Path(f"/proc/{os.getpid()}/stat").read_text()
-start_time = int(raw.rpartition(") ")[2].split()[19])
+pid = os.getpid()
+try:
+    raw = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    start_time = int(raw.rpartition(") ")[2].split()[19])
+except (OSError, IndexError, ValueError):
+    # macOS: no /proc, read start time via ps.
+    out = subprocess.check_output(["ps", "-p", str(pid), "-o", "lstart="], text=True).strip()
+    start_time = int(datetime.strptime(out, "%a %b %d %H:%M:%S %Y").timestamp())
 record = json.loads(recovery.read_text())
-record.update(pid=os.getpid(), process_start_time=start_time, state="ownership-recorded")
-temporary = recovery.with_name(f".{recovery.name}.child-{os.getpid()}")
+record.update(pid=pid, process_start_time=start_time, state="ownership-recorded")
+temporary = recovery.with_name(f".{recovery.name}.child-{pid}")
 temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
 temporary.chmod(0o600)
 temporary.replace(recovery)
@@ -336,18 +346,61 @@ def runtime_identity(runtime_dir):
 
 def process_start_time(pid):
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-        fields = stat.rpartition(") ")[2].split()
-        return int(fields[19])
-    except (OSError, IndexError, ValueError) as exc:
-        raise RuntimeError("Cannot verify regnet process start identity") from exc
+        return _start_time_from_proc(pid)
+    except (OSError, IndexError, ValueError):
+        # /proc is Linux-only; on macOS fall back to `ps` start time.
+        try:
+            return int(_start_time_from_ps(pid))
+        except Exception as exc:
+            raise RuntimeError(
+                "Cannot verify regnet process start identity"
+            ) from exc
+
+
+def _start_time_from_proc(pid):
+    stat = Path(f"/proc/{pid}/stat").read_text()
+    fields = stat.rpartition(") ")[2].split()
+    return int(fields[19])
+
+
+def _start_time_from_ps(pid):
+    """Return the process start time in integer epoch seconds via `ps`.
+
+    macOS has no /proc; `ps -p <pid> -o lstart=` prints e.g.
+    'Tue Jul 28 10:11:12 2026'. We parse it into an integer epoch seconds
+    value so callers can compare it like the Linux /proc starttime.
+    """
+    import subprocess
+    from datetime import datetime
+
+    output = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    dt = datetime.strptime(output, "%a %b %d %H:%M:%S %Y")
+    return int(dt.timestamp())
 
 
 def process_command(pid):
     try:
         raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-    except OSError as exc:
-        raise RuntimeError("Cannot verify regnet process command identity") from exc
+    except OSError:
+        # macOS has no /proc; use `ps` command name as a best-effort identity.
+        import subprocess
+
+        output = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if not output:
+            raise RuntimeError(
+                "Cannot verify regnet process command identity"
+            ) from None
+        return [output]
     return [os.fsdecode(argument) for argument in raw.rstrip(b"\0").split(b"\0")]
 
 
