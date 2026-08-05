@@ -1,10 +1,10 @@
-# Bismuth Labs 0–5: Download and Run
+# Bismuth Labs 0–8: Download and Run
 
-This is the newcomer entrypoint for the practical Bismuth learning labs. It starts with downloading the correct GitHub branch, creates an isolated Python environment, and shows exactly how to run Labs 0 through 5 on macOS or Linux.
+This is the newcomer entrypoint for the practical Bismuth learning labs. It starts with downloading the correct GitHub branch, creates an isolated Python environment, and shows exactly how to run Labs 0 through 8 on macOS or Linux.
 
 No existing Bismuth installation, wallet, BIS balance, Docker container, or mainnet node is required.
 
-> **Safety:** Labs 0–5 use only an owned local regnet on `127.0.0.1:3030`, generated temporary wallets, and valueless test BIS. There is no mainnet connection or remote fallback. A private key is never printed or sent to the node. Leaving the CLI with `quit` deletes the local node, wallets, and ledger.
+> **Safety:** Labs 0–8 use only an owned local regnet on `127.0.0.1:3030` (Labs 0–5) or short-lived read-only simulation scripts (Labs 6–8). Labs 0–5 use generated temporary wallets and valueless test BIS; Labs 6–8 are pure arithmetic/deterministic checks that start no node. There is no mainnet connection or remote fallback. A private key is never printed or sent to the node. Leaving the CLI with `quit` deletes the local node, wallets, and ledger.
 
 ## What you will learn
 
@@ -17,8 +17,11 @@ No existing Bismuth installation, wallet, BIS balance, Docker container, or main
 | [Lab 3](03-signing-identity/README.md) | How do key, address, signature, and txid bind together? | 10 min |
 | [Lab 4](04-competing-spend-rejection/README.md) | How does the account-model mempool reserve pending funds? | 10 min |
 | [Lab 5](05-block-sqlite-structure/README.md) | How is one block represented by SQLite transaction rows? | 10 min |
+| [Lab 6](06-difficulty-simulation/README.md) | How does difficulty steer block time? | 5 min |
+| [Lab 7](07-fork-selection/README.md) | What rules does a node apply at a hard fork? | 5 min |
+| [Lab 8](08-tokens-no-vm/README.md) | How are tokens built with no VM? | 5 min |
 
-Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3.
+Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3. Labs 6–8 are short read-only simulations: Lab 6 shows the difficulty feedback controller, Lab 7 walks the `Fork` consensus rules, and Lab 8 models token issue/transfer/reindex.
 
 ## 1. Prerequisites
 

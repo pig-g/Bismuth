@@ -615,10 +615,10 @@ def test_lab_5_guides_block_to_sqlite_structure():
         assert concept in text
 
 
-def test_external_labs_guide_covers_download_setup_and_labs_zero_through_five():
+def test_external_labs_guide_covers_download_setup_and_labs_zero_through_eight():
     text = LABS_GUIDE.read_text()
     for concept in (
-        "Bismuth Labs 0–5",
+        "Bismuth Labs 0–8",
         "https://github.com/pig-g/Bismuth.git",
         "hermes/lab-1-test-bis-workflow",
         "Download ZIP",
@@ -643,13 +643,16 @@ def test_external_labs_guide_covers_download_setup_and_labs_zero_through_five():
         "03-signing-identity/README.md",
         "04-competing-spend-rejection/README.md",
         "05-block-sqlite-structure/README.md",
+        "06-difficulty-simulation/README.md",
+        "07-fork-selection/README.md",
+        "08-tokens-no-vm/README.md",
     ):
         assert f"]({relative})" in text
 
 
 def test_repository_readme_links_the_newcomer_labs_guide():
     text = ROOT_README.read_text()
-    assert "[Practical Labs 0–5](labs/README.md)" in text
+    assert "[Practical Labs 0–8](labs/README.md)" in text
 
 
 def test_lab_5_exact_real_process_exercise_maps_one_confirmed_block():

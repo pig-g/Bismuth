@@ -58,10 +58,12 @@ Market:
 
 ### Practical learning labs:
 
-Start with [Practical Labs 0–5](labs/README.md) for newcomer instructions that
+Start with [Practical Labs 0–8](labs/README.md) for newcomer instructions that
 cover the correct GitHub branch, ZIP or Git download, Python 3.11 setup, and the
-exact macOS/Linux commands. The labs use only an isolated local regnet,
-temporary wallets, and valueless test BIS; they do not connect to mainnet.
+exact macOS/Linux commands. Labs 0–5 use only an isolated local regnet,
+temporary wallets, and valueless test BIS; Labs 6–8 are short read-only
+simulations (difficulty feedback, fork rules, token reindex) that start no node.
+They do not connect to mainnet.
 
 
 ### Regnet tests
