@@ -602,3 +602,29 @@ def test_stop_cleans_state_when_process_exits_before_sigkill(tmp_path, monkeypat
     with pytest.raises(OSError):
         os.fstat(process_handle)
     assert not runtime_dir.exists()
+
+
+def test_macos_ps_start_time_fallback_yields_positive_int():
+    """The macOS (no /proc) ps-based start-time fallback must work and be a
+    positive integer so identity checks compare like the Linux value."""
+    import os
+    import regnet_control
+
+    value = regnet_control._start_time_from_ps(os.getpid())
+    assert isinstance(value, int)
+    assert value > 0
+
+
+def test_process_start_time_prefers_proc_and_falls_back_to_ps(
+    tmp_path, monkeypatch
+):
+    """When /proc is unavailable, process_start_time must use the ps fallback
+    instead of propagating the missing-proc error."""
+    import regnet_control
+
+    def no_proc(_pid):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(regnet_control, "_start_time_from_proc", no_proc)
+    monkeypatch.setattr(regnet_control, "_start_time_from_ps", lambda _pid: 1785915051)
+    assert regnet_control.process_start_time(1234) == 1785915051
