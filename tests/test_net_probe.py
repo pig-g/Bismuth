@@ -221,9 +221,9 @@ def test_fork_report_marks_fork():
 
 
 class FakeMinerClient(FakeClient):
-    """FakeClient that also answers the Phase 3 mining RPCs."""
-    def __init__(self, blocks, difficulty=None, mempool=3):
-        super().__init__()
+    """FakeClient that also answers the Phase 3/4 mining RPCs."""
+    def __init__(self, blocks, difficulty=None, mempool=3, status=None):
+        super().__init__(status=status or {"blocks": 1000, "consensus_percent": 80.0, "last_block_ago": 10})
         self._blocks = blocks
         self.difficulty = difficulty or {"difficulty": 87.9, "block_time": 63.2, "time_to_generate": 32.6}
         self.mempool = mempool
@@ -275,3 +275,49 @@ def test_mine_report_contains_fields():
     assert "mean block interval" in txt
     assert "difficulty" in txt
     assert "mempool" in txt
+
+
+def test_record_sample_collects_metrics():
+    seeds = {
+        "a": FakeMinerClient(_sample_blocks(n=5), mempool=2),
+    }
+    s = np.record_sample(fake_factory(seeds), "a")
+    assert s["ts"] > 0
+    assert s["seed"] == "a"
+    assert s["block_height"] == 1000
+    assert s["difficulty"] == 87.9
+    assert s["mempool_txs"] == 2
+
+
+def test_append_and_load_jsonl_roundtrip(tmp_path):
+    p = tmp_path / "data.jsonl"
+    np.append_jsonl(p, {"ts": 1.0, "block_height": 1000})
+    np.append_jsonl(p, {"ts": 2.0, "block_height": 1001})
+    rows = np.load_jsonl(p)
+    assert len(rows) == 2
+    assert rows[0]["block_height"] == 1000
+    assert rows[1]["block_height"] == 1001
+
+
+def test_report_series_empty():
+    assert "no recorded data" in np.report_series([])
+
+
+def test_report_series_single_metric():
+    rows = [{"block_height": 1000}, {"block_height": 1010}, {"block_height": 1020}]
+    out = np.report_series(rows, metric="block_height")
+    assert "block_height" in out
+    assert "min=1000.000" in out
+    assert "max=1020.000" in out
+
+
+def test_report_series_trend():
+    rows = [{"difficulty": 80.0}, {"difficulty": 90.0}, {"difficulty": 100.0}]
+    out = np.report_series(rows)
+    assert "difficulty" in out
+
+
+def test_report_series_ignores_non_numeric():
+    rows = [{"block_height": None}, {"block_height": "n/a"}, {"block_height": 5}]
+    out = np.report_series(rows, metric="block_height")
+    assert "min=5.000" in out

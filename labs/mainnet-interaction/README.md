@@ -29,6 +29,8 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `net health` | 0-100 health score + grade (staleness, consensus%, divergence, version) *(Phase 1)* | read-only |
 | `net fork-check <height>` | compare that height's block hash across seeds to detect a chain split *(Phase 2)* | read-only |
 | `net mine-stats <height>` | block-interval stats vs 60s target + difficulty + mempool load *(Phase 3)* | read-only |
+| `net record --out DIR --interval N --rounds R` | record metric samples to a local JSONL file on an interval *(Phase 4)* | read-only + local file |
+| `net report --from-json FILE [--metric X]` | time-series research report from a recorded JSONL *(Phase 4)* | local read |
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 
