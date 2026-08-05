@@ -11,7 +11,7 @@ if [ -z "$LOG" ] || [ -z "$OUT" ]; then
 fi
 mkdir -p "$OUT"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-B=${B:-100}
+B=${B:-20}
 {
   echo "######## $TS ########"
   echo "## BANS ##"
