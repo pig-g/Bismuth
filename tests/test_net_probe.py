@@ -218,3 +218,60 @@ def test_fork_report_marks_fork():
     rep = np.fork_check(fake_factory(seeds), list(seeds), 5)
     txt = np.fork_report(rep)
     assert "FORK" in txt
+
+
+class FakeMinerClient(FakeClient):
+    """FakeClient that also answers the Phase 3 mining RPCs."""
+    def __init__(self, blocks, difficulty=None, mempool=3):
+        super().__init__()
+        self._blocks = blocks
+        self.difficulty = difficulty or {"difficulty": 87.9, "block_time": 63.2, "time_to_generate": 32.6}
+        self.mempool = mempool
+
+    def command(self, cmd, opts=None):
+        if cmd == "api_getblockrange":
+            return self._blocks
+        if cmd == "diffgetjson":
+            return self.difficulty
+        if cmd == "mpgetjson":
+            return [1] * self.mempool
+        return super().command(cmd, opts)
+
+
+def _sample_blocks(base=1000.0, n=5):
+    """Blocks spaced ~10s apart so mean interval is computable and deterministic."""
+    return {str(base + i): {"mining_tx": {"timestamp": base + i * 10.0}} for i in range(n)}
+
+
+def test_mine_stats_computes_intervals():
+    blocks = _sample_blocks(n=5)
+    c = FakeMinerClient(blocks)
+    s = np.mine_stats(lambda seed: c, "seed", 1040, n_blocks=5)
+    assert s["mean_interval_s"] == 10.0
+    assert s["n_blocks"] == 5
+    assert s["mempool_txs"] == 3
+    assert s["difficulty"] == 87.9
+
+
+def test_mine_stats_offset_vs_target():
+    blocks = _sample_blocks(n=4)
+    c = FakeMinerClient(blocks)
+    s = np.mine_stats(lambda seed: c, "s", 1030, n_blocks=4)
+    assert s["offset_vs_target_s"] == -50.0
+
+
+def test_mine_stats_handles_empty():
+    c = FakeMinerClient({})
+    s = np.mine_stats(lambda seed: c, "s", 100, n_blocks=10)
+    assert s["mean_interval_s"] is None
+    assert "n/a" in np.mine_report(s)
+
+
+def test_mine_report_contains_fields():
+    blocks = _sample_blocks(n=5)
+    c = FakeMinerClient(blocks)
+    s = np.mine_stats(lambda seed: c, "seed", 1040, n_blocks=5)
+    txt = np.mine_report(s)
+    assert "mean block interval" in txt
+    assert "difficulty" in txt
+    assert "mempool" in txt

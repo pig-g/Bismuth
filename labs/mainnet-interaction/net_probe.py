@@ -267,3 +267,97 @@ def fork_report(report: dict) -> str:
     else:
         lines.append("FORK: none (all seeds agree on the same block hash)")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: mining / mempool diagnostics.
+# ---------------------------------------------------------------------------
+
+# Bismuth targets ~60s block generation.
+TARGET_BLOCK_S = 60.0
+
+
+def safe_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_blockrange(raw):
+    """Turn api_getblockrange response (str JSON or dict) into {height: mining tx}."""
+    import ast
+    if isinstance(raw, str):
+        try:
+            raw = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            return {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k, b in raw.items():
+        if isinstance(b, dict):
+            out[str(k)] = b.get("mining_tx") or {}
+    return out
+
+
+def mine_stats(client_factory, seed, height, *, n_blocks=10):
+    """Block-interval stats (mean / spread vs 60s) + current difficulty + mempool
+    load, all queried read-only from a single seed."""
+    start = height - n_blocks + 1
+    start = max(start, 1)
+    raw = client_factory(seed).command("api_getblockrange", [start, height])
+    blocks = _parse_blockrange(raw)
+    ts = [b.get("timestamp") for b in blocks.values()]
+    timestamps = sorted(safe_float(t) for t in ts if safe_float(t) is not None)
+
+    intervals = []
+    for i in range(1, len(timestamps)):
+        d = timestamps[i] - timestamps[i - 1]
+        if d > 0:
+            intervals.append(d)
+
+    stats = {"seed": seed, "n_blocks": len(timestamps)}
+    if intervals:
+        mean = sum(intervals) / len(intervals)
+        spread = max(intervals) - min(intervals)
+        stats["mean_interval_s"] = round(mean, 1)
+        stats["min_interval_s"] = round(min(intervals), 1)
+        stats["max_interval_s"] = round(max(intervals), 1)
+        offset = mean - TARGET_BLOCK_S
+        stats["offset_vs_target_s"] = round(offset, 1)
+        stats["diff_mean_s"] = round(spread, 1)
+    else:
+        stats["mean_interval_s"] = None
+
+    # difficulty / mempool from diffgetjson + mpgetjson on the same seed.
+    try:
+        diff = client_factory(seed).command("diffgetjson")
+        if isinstance(diff, dict):
+            stats["difficulty"] = safe_float(diff.get("difficulty"))
+            stats["block_time"] = safe_float(diff.get("block_time"))
+            stats["time_to_generate"] = safe_float(diff.get("time_to_generate"))
+    except Exception:
+        pass
+    try:
+        mp = client_factory(seed).command("mpgetjson")
+        stats["mempool_txs"] = len(mp) if isinstance(mp, (list, dict)) else None
+    except Exception:
+        pass
+    return stats
+
+
+def mine_report(stats: dict) -> str:
+    lines = [f"Mining stats @ seed {stats['seed']} (last {stats.get('n_blocks')} blocks):"]
+    mi = stats.get("mean_interval_s")
+    if mi is not None:
+        off = stats.get("offset_vs_target_s")
+        lines.append(f"  mean block interval: {mi}s (target ~{TARGET_BLOCK_S:.0f}s, offset {off:+.0f}s)")
+        lines.append(f"  interval range: {stats.get('min_interval_s')}s - {stats.get('max_interval_s')}s (spread {stats.get('diff_mean_s')}s)")
+    else:
+        lines.append("  mean block interval: n/a (no timestamps)")
+    if stats.get("difficulty") is not None:
+        lines.append(f"  difficulty: {stats['difficulty']:.4f}  block_time: {stats.get('block_time')}s  time_to_generate: {stats.get('time_to_generate')}s")
+    mp = stats.get("mempool_txs")
+    lines.append(f"  mempool pending txs: {mp if mp is not None else 'n/a'}")
+    return "\n".join(lines)

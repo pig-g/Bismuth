@@ -155,6 +155,14 @@ def cmd_net_fork_check(height):
     return 0
 
 
+def cmd_net_mine_stats(height, seed=None):
+    """Phase 3: block-interval + difficulty + mempool stats from one seed. Read-only."""
+    seed = seed or MAINNET_SEEDS[0]
+    stats = net_probe.mine_stats(probe_client, seed, height)
+    print(net_probe.mine_report(stats))
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -208,6 +216,9 @@ def main(argv):
             return cmd_net_health() or 0
         if command == "net" and args and args[0] == "fork-check":
             return cmd_net_fork_check(int(args[1])) or 0
+        if command == "net" and args and args[0] == "mine-stats":
+            seed = args[2] if len(args) > 2 else None
+            return cmd_net_mine_stats(int(args[1]), seed) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
