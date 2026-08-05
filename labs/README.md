@@ -1,10 +1,10 @@
-# Bismuth Labs 0–8: Download and Run
+# Bismuth Labs 0–10: Download and Run
 
-This is the newcomer entrypoint for the practical Bismuth learning labs. It starts with downloading the correct GitHub branch, creates an isolated Python environment, and shows exactly how to run Labs 0 through 8 on macOS or Linux.
+This is the newcomer entrypoint for the practical Bismuth learning labs. It starts with downloading the correct GitHub branch, creates an isolated Python environment, and shows exactly how to run Labs 0 through 10 on macOS or Linux.
 
 No existing Bismuth installation, wallet, BIS balance, Docker container, or mainnet node is required.
 
-> **Safety:** Labs 0–8 use only an owned local regnet on `127.0.0.1:3030` (Labs 0–5) or short-lived read-only simulation scripts (Labs 6–8). Labs 0–5 use generated temporary wallets and valueless test BIS; Labs 6–8 are pure arithmetic/deterministic checks that start no node. There is no mainnet connection or remote fallback. A private key is never printed or sent to the node. Leaving the CLI with `quit` deletes the local node, wallets, and ledger.
+> **Safety:** Labs 0–10 use only an owned local regnet on `127.0.0.1:3030` (Labs 0–5) or short-lived read-only simulation scripts (Labs 6–10). Labs 0–5 use generated temporary wallets and valueless test BIS; Labs 6–10 are pure arithmetic/deterministic checks or code read-throughs that start no node. There is no mainnet connection or remote fallback. A private key is never printed or sent to the node. Leaving the CLI with `quit` deletes the local node, wallets, and ledger.
 
 ## What you will learn
 
@@ -20,12 +20,14 @@ No existing Bismuth installation, wallet, BIS balance, Docker container, or main
 | [Lab 6](06-difficulty-simulation/README.md) | How does difficulty steer block time? | 5 min |
 | [Lab 7](07-fork-selection/README.md) | What rules does a node apply at a hard fork? | 5 min |
 | [Lab 8](08-tokens-no-vm/README.md) | How are tokens built with no VM? | 5 min |
+| [Lab 9](09-consensus-vs-meaning/README.md) | How do consensus data and meaning stay separate? | 8 min |
+| [Lab 10](10-insecure-defaults/README.md) | What unsafe defaults does a node ship with? | 8 min |
 
-Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3. Labs 6–8 are short read-only simulations: Lab 6 shows the difficulty feedback controller, Lab 7 walks the `Fork` consensus rules, and Lab 8 models token issue/transfer/reindex.
+Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3. Labs 6–8 are short read-only simulations: Lab 6 shows the difficulty feedback controller, Lab 7 walks the `Fork` consensus rules, and Lab 8 models token issue/transfer/reindex. Labs 9–10 are short code read-throughs: Lab 9 separates consensus data from indexer meaning, and Lab 10 flags unsafe defaults in the node.
 
 ### Separate mainnet track
 
-After Labs 0–8, the optional [Mainnet Interaction Track](mainnet-interaction/README.md) talks to the **real Bismuth mainnet** (read only) and, if you add a small trial BIS balance yourself, lets you locally sign and send a **small trial amount**. It is strictly separate from the regnet CLI (its own `.venv-mainnet`, created by `setup_venv.sh`) and always prints a REAL-MAINNET warning. Because Bismuth has no testnet, this is how you safely touch the real chain. Start with [its step-by-step tutorial](mainnet-interaction/TUTORIAL.md).
+After Labs 0–10, the optional [Mainnet Interaction Track](mainnet-interaction/README.md) talks to the **real Bismuth mainnet** (read only) and, if you add a small trial BIS balance yourself, lets you locally sign and send a **small trial amount**. It is strictly separate from the regnet CLI (its own `.venv-mainnet`, created by `setup_venv.sh`) and always prints a REAL-MAINNET warning. Because Bismuth has no testnet, this is how you safely touch the real chain. Start with [its step-by-step tutorial](mainnet-interaction/TUTORIAL.md).
 
 ## 1. Prerequisites
 
