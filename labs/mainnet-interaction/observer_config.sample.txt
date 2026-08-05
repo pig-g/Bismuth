@@ -1,0 +1,34 @@
+# Observer node config for Bismuth P2P/consensus research (hardened read-only observer).
+# Localhost-only remote influence; no mining; isolated data paths.
+
+port=5659
+verify=False
+version=mainnet0022
+version_allow=mainnet0021,mainnet0022,mainnet0023
+thread_limit=64
+rebuild_db=False
+debug=False
+debug_level=WARNING
+purge=True
+pause=1
+hyper_path=static_obs/hyper.db
+hyper_recompress=False
+full_ledger=True
+ledger_path=static_obs/ledger.db
+ban_threshold=30
+tor=False
+allowed=127.0.0.1
+ram=False
+node_ip=127.0.0.1
+light_ip=127.0.0.1
+reveal_address=False
+accept_peers=True
+banlist=127.1.2.3
+whitelist=127.0.0.1
+nodes_ban_reset=5
+mempool_allowed=
+terminal_output=True
+gui_scaling=adapt
+mempool_ram=True
+egress=True
+trace_db_calls=False

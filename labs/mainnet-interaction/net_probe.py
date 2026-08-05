@@ -457,3 +457,86 @@ def report_series(rows, metric=None):
             trend = f"  first={vals[0]:.3f} last={vals[-1]:.3f} {arrow}"
         lines.append(f"  {m}: min={min(vals):.3f} max={max(vals):.3f} mean={st.mean(vals):.3f}{trend}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: observer-node banlog analysis.
+# ---------------------------------------------------------------------------
+
+# Known ban reason catalogue (mirrors warnings seen in node.py / peershandler.py /
+# digest.py / worker.py). Weight is the warning score each reason contributes.
+BAN_REASONS = {
+    "Failed to deliver the longest chain": 1,
+    "Forked": 2,
+    "Rollback": 2,
+    "Operation timeout": 2,
+    "Rejected block": 2,
+    "Consensus deviation too high": 10,
+}
+
+
+def parse_ban_log(text):
+    """Parse observer-node log text into ban/warning events.
+
+    Matches the peer-handler log lines, e.g.:
+      Added 2 warning(s) to 1.2.3.4: Forked (4 / 30)
+      1.2.3.4 is banned: Consensus deviation too high
+    Returns a dict with lists of events.
+    """
+    import re
+    events = []
+    warning_re = re.compile(r"Added (\d+) warning\(s\) to ([\d.]+): (.+?) \((\d+) / (\d+)\)")
+    ban_re = re.compile(r"([\d.]+) is banned: (.+)")
+    for line in text.splitlines():
+        m = warning_re.search(line)
+        if m:
+            events.append({
+                "type": "warning",
+                "count": int(m.group(1)),
+                "ip": m.group(2),
+                "reason": m.group(3).strip(),
+                "running": int(m.group(4)),
+                "threshold": int(m.group(5)),
+            })
+            continue
+        m = ban_re.search(line)
+        if m:
+            events.append({"type": "ban", "ip": m.group(1), "reason": m.group(2).strip()})
+    return events
+
+
+def ban_report(events, *, threshold=30):
+    """Summarize parsed ban events: bans by reason (the catalogue) and warnings."""
+    bans = [e for e in events if e["type"] == "ban"]
+    warnings = [e for e in events if e["type"] == "warning"]
+    lines = [f"Ban analysis: {len(events)} events ({len(bans)} bans, {len(warnings)} warnings)"]
+    if not events:
+        lines.append("  no ban activity recorded")
+        return "\n".join(lines)
+
+    # bans grouped by reason -> the catalogue in practice
+    from collections import Counter
+    ban_reasons = Counter(e["reason"] for e in bans)
+    lines.append("  Bans by reason:")
+    if ban_reasons:
+        for reason, count in ban_reasons.most_common():
+            known = "" if reason in BAN_REASONS else " (unknown)"
+            lines.append(f"    - {reason} x{count}{known}")
+    else:
+        lines.append("    (none)")
+
+    # warning counts per IP -> who is closest to being banned
+    warn_by_ip = Counter(e["ip"] for e in warnings)
+    lines.append("  Warning accumulation (top IPs, threshold {0}):".format(threshold))
+    for ip, count in warn_by_ip.most_common(5):
+        lines.append(f"    - {ip}: {count} warnings")
+
+    # consensus health: what blocked consensus formation (why did bans happen)
+    lines.append("  Consensus blockers observed:")
+    blockers = set(e["reason"] for e in bans + warnings)
+    if blockers:
+        for b in sorted(blockers):
+            lines.append(f"    - {b}")
+    else:
+        lines.append("    (none)")
+    return "\n".join(lines)

@@ -188,6 +188,15 @@ def cmd_net_report(path, metric=None):
     return 0
 
 
+def cmd_net_ban(logfile):
+    """Phase 5: analyze an observer-node ban log (read from a local file)."""
+    with open(logfile, "r", encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    events = net_probe.parse_ban_log(text)
+    print(net_probe.ban_report(events))
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -253,6 +262,8 @@ def main(argv):
             if not file:
                 raise ValueError("report requires --from-json FILE")
             return cmd_net_report(file, opts.get("metric")) or 0
+        if command == "net" and args and args[0] == "ban-analyze":
+            return cmd_net_ban(args[1]) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
