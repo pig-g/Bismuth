@@ -134,6 +134,27 @@ def cmd_net_probe():
     return 0
 
 
+def cmd_net_health():
+    """Phase 1: print a 0-100 health score + grade. Read-only."""
+    result = net_probe.probe_all(probe_client, MAINNET_SEEDS)
+    h = net_probe.health_score(result)
+    print(f"Health score: {h['score']}/100 ({h['grade']})")
+    for r in h["reasons"]:
+        print(f"  - {r}")
+    if h["score"] < 50:
+        return 2
+    return 0
+
+
+def cmd_net_fork_check(height):
+    """Phase 2: compare block hash at height across seeds to detect a fork. Read-only."""
+    report = net_probe.fork_check(probe_client, MAINNET_SEEDS, height)
+    print(net_probe.fork_report(report))
+    if report["fork"]:
+        return 2
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -183,6 +204,10 @@ def main(argv):
             return cmd_send(**parse_send_options(args)) or 0
         if command == "net" and args and args[0] == "probe":
             return cmd_net_probe() or 0
+        if command == "net" and args and args[0] == "health":
+            return cmd_net_health() or 0
+        if command == "net" and args and args[0] == "fork-check":
+            return cmd_net_fork_check(int(args[1])) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:

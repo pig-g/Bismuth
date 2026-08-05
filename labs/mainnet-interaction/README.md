@@ -26,6 +26,8 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `balance <address>` | an address balance | read-only |
 | `tx <txid>` | one confirmed transaction | read-only |
 | `net probe` | poll every public seed; report health, consensus height, divergence, version mismatch *(Phase 0 diagnostic)* | read-only |
+| `net health` | 0-100 health score + grade (staleness, consensus%, divergence, version) *(Phase 1)* | read-only |
+| `net fork-check <height>` | compare that height's block hash across seeds to detect a chain split *(Phase 2)* | read-only |
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 
