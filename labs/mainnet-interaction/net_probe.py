@@ -361,3 +361,99 @@ def mine_report(stats: dict) -> str:
     mp = stats.get("mempool_txs")
     lines.append(f"  mempool pending txs: {mp if mp is not None else 'n/a'}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: time-series research dataset (local JSONL recording + report).
+# ---------------------------------------------------------------------------
+
+import json as _json
+import time as _time
+
+
+def record_sample(client_factory, seed, height=None, *, n_blocks=10, extra=None):
+    """Collect one timestamped sample of key metrics (read-only)."""
+    probe = probe_seed(client_factory, seed)
+    h = height or probe.blocks or 0
+    try:
+        mine = mine_stats(client_factory, seed, h, n_blocks=n_blocks)
+    except Exception:
+        mine = {}
+    sample = {
+        "ts": round(_time.time(), 3),
+        "seed": seed,
+        "version": probe.version,
+        "block_height": probe.blocks,
+        "consensus_percent": probe.consensus_percent,
+        "last_block_ago": probe.last_block_ago,
+        "difficulty": mine.get("difficulty") if isinstance(mine, dict) else None,
+        "mean_interval_s": mine.get("mean_interval_s") if isinstance(mine, dict) else None,
+        "mempool_txs": mine.get("mempool_txs") if isinstance(mine, dict) else None,
+    }
+    if extra:
+        sample.update(extra)
+    return sample
+
+
+def append_jsonl(path, sample):
+    """Atomically append one sample as a JSON line. Local file only."""
+    import os
+    path = str(path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(sample) + "\n")
+    return path
+
+
+def load_jsonl(path):
+    """Read a JSONL file into a list of dicts."""
+    rows = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                try:
+                    rows.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    continue
+    return rows
+
+
+def _pick(row, metric, default=None):
+    v = row.get(metric)
+    if isinstance(v, (int, float)):
+        return v
+    return default
+
+
+def report_series(rows, metric=None):
+    """Analyze a recorded series. If metric given, report just that column; otherwise
+    summarise all known numeric metrics across healthy rows."""
+    import statistics as st
+
+    if not rows:
+        return "report: no recorded data"
+
+    if metric:
+        vals = [v for v in (_pick(r, metric) for r in rows) if v is not None]
+        if not vals:
+            return f"report: metric '{metric}' has no numeric data"
+        return (
+            f"Metric: {metric}  ({len(rows)} samples)\n"
+            f"  min={min(vals):.3f}  max={max(vals):.3f}  mean={st.mean(vals):.3f}  "
+            f"latest={vals[-1]:.3f}"
+        )
+
+    metrics = ["block_height", "consensus_percent", "last_block_ago", "difficulty", "mean_interval_s", "mempool_txs"]
+    lines = [f"Research report: {len(rows)} samples"]
+    for m in metrics:
+        vals = [v for v in (_pick(r, m) for r in rows) if v is not None]
+        if not vals:
+            continue
+        trend = ""
+        if len(vals) >= 2:
+            delta = vals[-1] - vals[0]
+            arrow = "↗" if delta > 0 else ("↘" if delta < 0 else "→")
+            trend = f"  first={vals[0]:.3f} last={vals[-1]:.3f} {arrow}"
+        lines.append(f"  {m}: min={min(vals):.3f} max={max(vals):.3f} mean={st.mean(vals):.3f}{trend}")
+    return "\n".join(lines)

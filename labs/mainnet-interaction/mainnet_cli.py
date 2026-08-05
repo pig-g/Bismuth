@@ -163,6 +163,31 @@ def cmd_net_mine_stats(height, seed=None):
     return 0
 
 
+def cmd_net_record(out_dir, interval, rounds, seed=None):
+    """Phase 4: record metric samples to a local JSONL file on an interval."""
+    import os
+    import time
+    seed = seed or MAINNET_SEEDS[0]
+    out_dir = out_dir or os.path.join(os.path.expanduser("~"), ".bismuth-net")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, time.strftime("%Y-%m-%d") + ".jsonl")
+    print(f"Recording to {path} every {interval}s for {rounds} rounds (seed {seed})...")
+    for i in range(int(rounds)):
+        sample = net_probe.record_sample(probe_client, seed)
+        net_probe.append_jsonl(path, sample)
+        print(f"  [{i+1}/{rounds}] ts={sample['ts']} height={sample.get('block_height')} diff={sample.get('difficulty')}")
+        if i + 1 < int(rounds):
+            time.sleep(float(interval))
+    return 0
+
+
+def cmd_net_report(path, metric=None):
+    """Phase 4: analyze a recorded JSONL dataset and print a research report."""
+    rows = net_probe.load_jsonl(path)
+    print(net_probe.report_series(rows, metric=metric))
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -219,6 +244,15 @@ def main(argv):
         if command == "net" and args and args[0] == "mine-stats":
             seed = args[2] if len(args) > 2 else None
             return cmd_net_mine_stats(int(args[1]), seed) or 0
+        if command == "net" and args and args[0] == "record":
+            opts = parse_net_opts(args[1:])
+            return cmd_net_record(opts["out"], opts["interval"], opts.get("rounds", 5), opts.get("seed")) or 0
+        if command == "net" and args and args[0] == "report":
+            opts = parse_net_opts(args[1:])
+            file = opts.get("from_json")
+            if not file:
+                raise ValueError("report requires --from-json FILE")
+            return cmd_net_report(file, opts.get("metric")) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
@@ -227,6 +261,26 @@ def main(argv):
     except Exception as exc:  # wrapped for CLI friendliness
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def parse_net_opts(args):
+    """Parse net subcommand options: --out, --interval, --rounds, --seed, --from-json, --metric."""
+    opts = {"out": None, "interval": 30, "rounds": 5, "from_json": None, "metric": None, "seed": None}
+    it = iter(args)
+    for token in it:
+        if token == "--out":
+            opts["out"] = next(it)
+        elif token == "--interval":
+            opts["interval"] = int(next(it))
+        elif token == "--rounds":
+            opts["rounds"] = int(next(it))
+        elif token == "--seed":
+            opts["seed"] = next(it)
+        elif token == "--from-json":
+            opts["from_json"] = next(it)
+        elif token == "--metric":
+            opts["metric"] = next(it)
+    return opts
 
 
 def parse_send_options(args):
