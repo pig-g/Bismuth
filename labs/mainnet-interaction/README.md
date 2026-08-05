@@ -25,6 +25,7 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `block <height>` | one block (signatures/public keys redacted) | read-only |
 | `balance <address>` | an address balance | read-only |
 | `tx <txid>` | one confirmed transaction | read-only |
+| `net probe` | poll every public seed; report health, consensus height, divergence, version mismatch *(Phase 0 diagnostic)* | read-only |
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 
