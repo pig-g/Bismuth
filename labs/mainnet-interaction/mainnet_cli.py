@@ -249,8 +249,12 @@ def main(argv):
         if command == "net" and args and args[0] == "health":
             return cmd_net_health() or 0
         if command == "net" and args and args[0] == "fork-check":
+            if len(args) < 2:
+                raise ValueError("fork-check requires a HEIGHT\nusage: net fork-check <height>")
             return cmd_net_fork_check(int(args[1])) or 0
         if command == "net" and args and args[0] == "mine-stats":
+            if len(args) < 2:
+                raise ValueError("mine-stats requires a HEIGHT\nusage: net mine-stats <height> [seed]")
             seed = args[2] if len(args) > 2 else None
             return cmd_net_mine_stats(int(args[1]), seed) or 0
         if command == "net" and args and args[0] == "record":
@@ -263,6 +267,8 @@ def main(argv):
                 raise ValueError("report requires --from-json FILE")
             return cmd_net_report(file, opts.get("metric")) or 0
         if command == "net" and args and args[0] == "ban-analyze":
+            if len(args) < 2:
+                raise ValueError("ban-analyze requires a LOGFILE\nusage: net ban-analyze <node.log>")
             return cmd_net_ban(args[1]) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
