@@ -321,3 +321,37 @@ def test_report_series_ignores_non_numeric():
     rows = [{"block_height": None}, {"block_height": "n/a"}, {"block_height": 5}]
     out = np.report_series(rows, metric="block_height")
     assert "min=5.000" in out
+
+
+def test_parse_ban_log_warnings_and_bans():
+    text = ("Added 2 warning(s) to 1.2.3.4: Forked (4 / 30)\n"
+            "Added 10 warning(s) to 5.6.7.8: Consensus deviation too high (10 / 30)\n"
+            "5.6.7.8 is banned: Consensus deviation too high\n")
+    events = np.parse_ban_log(text)
+    assert len(events) == 3
+    assert events[0]["type"] == "warning"
+    assert events[0]["reason"] == "Forked"
+    assert events[0]["running"] == 4
+    assert events[2]["type"] == "ban"
+    assert events[2]["reason"] == "Consensus deviation too high"
+
+
+def test_ban_report_empty():
+    assert "no ban activity" in np.ban_report([])
+
+
+def test_ban_report_groups_by_reason():
+    text = ("Added 2 warning(s) to 1.1.1.1: Forked (2 / 30)\n"
+            "1.2.3.4 is banned: Rollback\n"
+            "5.6.7.8 is banned: Rollback\n")
+    events = np.parse_ban_log(text)
+    out = np.ban_report(events)
+    assert "Rollback x2" in out
+    assert "Consensus blockers observed" in out
+
+
+def test_ban_report_unknown_reason_flagged():
+    text = "9.9.9.9 is banned: Something new\n"
+    events = np.parse_ban_log(text)
+    out = np.ban_report(events)
+    assert "unknown" in out
