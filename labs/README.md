@@ -25,7 +25,7 @@ Run them in that order. Lab 2.1 is a short bridge between Labs 2 and 3. Labs 6�
 
 ### Separate mainnet track
 
-After Labs 0–8, the optional [Mainnet Interaction Track](mainnet-interaction/README.md) talks to the **real Bismuth mainnet** (read only) and, if you add a small trial BIS balance yourself, lets you locally sign and send a **small trial amount**. It is strictly separate from the regnet CLI and always prints a REAL-MAINNET warning. Because Bismuth has no testnet, this is how you safely touch the real chain.
+After Labs 0–8, the optional [Mainnet Interaction Track](mainnet-interaction/README.md) talks to the **real Bismuth mainnet** (read only) and, if you add a small trial BIS balance yourself, lets you locally sign and send a **small trial amount**. It is strictly separate from the regnet CLI (its own `.venv-mainnet`, created by `setup_venv.sh`) and always prints a REAL-MAINNET warning. Because Bismuth has no testnet, this is how you safely touch the real chain. Start with [its step-by-step tutorial](mainnet-interaction/TUTORIAL.md).
 
 ## 1. Prerequisites
 

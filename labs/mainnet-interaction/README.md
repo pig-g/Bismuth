@@ -28,21 +28,41 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 
+> **Step-by-step tutorial:** follow [TUTORIAL.md](TUTORIAL.md) for an ordered walkthrough with expected output for every command.
+
 ## 1. Prerequisites
 
 - macOS or Linux, Python 3.11
-- the isolated `.venv` (from [Lab 0](../00-regnet-first-run/README.md))
 - outbound access to a public Bismuth mainnet node on port `5658`
 - for `send`: a local wallet that holds a **small trial BIS balance** you added yourself
+
+### 1.1 One-time automatic setup
+
+The track has its own isolated environment, separate from the regnet `.venv`.
+Run this once from the repository root — it creates `.venv-mainnet` and installs
+the pinned `bismuthclient`:
+
+```bash
+sh ./labs/mainnet-interaction/setup_venv.sh
+```
+
+It finishes with:
+
+```text
+[setup] OK - bismuthclient importable.
+Mainnet venv ready: .../.venv-mainnet
+```
+
+From here on, use `./.venv-mainnet/bin/python` instead of `.venv/bin/python`.
 
 ## 2. Observe the real chain (read-only, no keys)
 
 From the repository root:
 
 ```bash
-.venv/bin/python ./labs/mainnet-interaction/mainnet_cli.py height
-.venv/bin/python ./labs/mainnet-interaction/mainnet_cli.py status
-.venv/bin/python ./labs/mainnet-interaction/mainnet_cli.py block 4928659
+./.venv-mainnet/bin/python ./labs/mainnet-interaction/mainnet_cli.py height
+./.venv-mainnet/bin/python ./labs/mainnet-interaction/mainnet_cli.py status
+./.venv-mainnet/bin/python ./labs/mainnet-interaction/mainnet_cli.py block 4928659
 ```
 
 Every command starts with the warning banner and prints safe read-only data. Verify the current height keeps rising, and that the latest block's difficulty and mining reward are real mainnet values. Full signatures and public keys are shown as `[REDACTED]`.
@@ -50,7 +70,7 @@ Every command starts with the warning banner and prints safe read-only data. Ver
 ## 3. Create a local wallet
 
 ```bash
-.venv/bin/python ./labs/mainnet-interaction/mainnet_cli.py wallet new ./trial.der
+./.venv-mainnet/bin/python ./labs/mainnet-interaction/mainnet_cli.py wallet new ./trial.der
 ```
 
 This creates a local wallet file and prints only its **public address**. The private key stays in that file on your machine. Copy the printed address.
@@ -62,7 +82,7 @@ If you already have real BIS somewhere, send a **small trial amount** to the add
 ## 5. Send a small trial transfer (optional, confirmed)
 
 ```bash
-.venv/bin/python ./labs/mainnet-interaction/mainnet_cli.py send \
+./.venv-mainnet/bin/python ./labs/mainnet-interaction/mainnet_cli.py send \
   --wallet ./trial.der \
   --to <another-address> \
   --amount 0.001
