@@ -207,6 +207,14 @@ def cmd_net_observe(logfile, n=20, ledger=None):
     return 0
 
 
+def cmd_net_miner_trace(logfile, ledger, wallet=None, n=1000, top=10):
+    """Statistical relay inference: which node IPs delivered a miner's blocks."""
+    with open(logfile, "r", encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    print(net_probe.miner_trace_report(text, ledger, wallet=wallet, n=n, top=top))
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -290,6 +298,19 @@ def main(argv):
             if "--ledger" in args:
                 ledger = args[args.index("--ledger") + 1]
             return cmd_net_observe(args[1], n=n, ledger=ledger) or 0
+        if command == "net" and args and args[0] == "miner-trace":
+            if len(args) < 3:
+                raise ValueError("miner-trace requires WALLET and NODE_LOG\nusage: net miner-trace <wallet> <node.log> [--ledger ledger.db] [--n N] [--top N]")
+            wallet = args[1]
+            ledger = None
+            n, top = 1000, 10
+            if "--ledger" in args:
+                ledger = args[args.index("--ledger") + 1]
+            if "--n" in args:
+                n = int(args[args.index("--n") + 1])
+            if "--top" in args:
+                top = int(args[args.index("--top") + 1])
+            return cmd_net_miner_trace(args[2], ledger, wallet=wallet, n=n, top=top) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:

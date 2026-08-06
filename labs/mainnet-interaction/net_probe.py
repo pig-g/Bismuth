@@ -643,3 +643,64 @@ def observe(logtext, n=20, ledger_db=None):
     if diffs:
         lines.append(f"Difficulty: {diffs[-1]}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# miner-trace: for a given miner wallet, show which node IPs delivered its
+# blocks most often (statistical relay inference).
+# ---------------------------------------------------------------------------
+def miner_trace(logtext, ledger_db, wallet=None, n=1000):
+    """Count, per block, who mined it (reward tx recipient) and which peer IP
+    delivered it to us first. Returns a dict:
+        {miner_wallet: {ip: count}}
+    If wallet is given, only that miner's blocks are kept. n = how many recent
+    valid-block events to consider.
+    """
+    import re
+    blocks = re.findall(r"Valid block: (\d+): ([0-9a-f]+) .*? digestion from ([0-9.]+)", logtext)[-n:]
+    if not blocks:
+        return {}
+    # resolve miner per (height, hash-prefix)
+    miners = _load_miners(ledger_db, [int(b[0]) for b in blocks]) if ledger_db else {}
+    from collections import defaultdict
+    agg = defaultdict(lambda: defaultdict(int))
+    for (h, hsh, ip) in blocks:
+        mn = miners.get(hsh)
+        if not mn:
+            continue
+        addr = mn["address"]
+        if wallet and addr != wallet:
+            continue
+        agg[addr][ip] += 1
+    return {a: dict(ips) for a, ips in agg.items()}
+
+
+def miner_trace_report(logtext, ledger_db, wallet=None, n=1000, top=10):
+    """Human-readable ranking: for the target miner (or all seen miners), list
+    node IPs by how many of its blocks they delivered first.
+    """
+    agg = miner_trace(logtext, ledger_db, wallet=wallet, n=n)
+    lines = []
+    if not agg:
+        lines.append("No block/miner data found in the log (or a ledger without these blocks).")
+        return "\n".join(lines)
+    if wallet:
+        targets = {wallet: agg.get(wallet, {})}
+    else:
+        targets = agg
+    for addr, ips in targets.items():
+        if not ips:
+            lines.append(f"Wallet {addr[:16]}...: no blocks seen in this window")
+            continue
+        total = sum(ips.values())
+        lines.append(f"Miner {addr[:16]}...  ({total} blocks)")
+        ranked = sorted(ips.items(), key=lambda kv: -kv[1])
+        for ip, cnt in ranked[:top]:
+            pct = 100.0 * cnt / total if total else 0
+            lines.append(f"    {ip}: {cnt} ({pct:.1f}%)")
+        if ranked and total:
+            top_ip, top_cnt = ranked[0]
+            if top_cnt / total >= 0.5:
+                lines.append(f"    >> likely relay/miner node: {top_ip}")
+        lines.append("")
+    return "\n".join(lines).rstrip()

@@ -1,12 +1,14 @@
 #!/bin/bash
 # Observer-node research snapshot: ban + peers + block/consensus activity.
 # Records a timestamped entry to OUT/observer.log. Read-only.
+# usage: observer_snapshot.sh <node.log> <out_dir> [python] [cli] [ledger.db]
 LOG="$1"
 OUT="$2"
 PY="${3:-python3}"
 CLI="${4:-labs/mainnet-interaction/mainnet_cli.py}"
+LEDGER="${5:-}"
 if [ -z "$LOG" ] || [ -z "$OUT" ]; then
-  echo "usage: observer_snapshot.sh <node.log> <out_dir> [python] [cli]"
+  echo "usage: observer_snapshot.sh <node.log> <out_dir> [python] [cli] [ledger.db]"
   exit 2
 fi
 mkdir -p "$OUT"
@@ -31,8 +33,12 @@ B=${B:-20}
   echo "## LAST BLOCK OPINION (consensus) ##"
   grep 'Last block opinion:' "$LOG" | tail -1 | sed -E 's/.*Last block opinion: //'
 
-  echo "## BLOCKS RECEIVED (last $B valid blocks: height:hash from ip) ##"
-  grep 'Valid block:' "$LOG" | tail -"$B" | grep -oE 'Valid block: [0-9]+: [0-9a-f]+ .* digestion from [0-9.]+' | tail -"$B"
+  echo "## BLOCKS RECEIVED (last $B valid blocks: height:hash from ip, mined_by) ##"
+  if [ -n "$LEDGER" ]; then
+    "$PY" "$CLI" net observe "$LOG" --n "$B" --ledger "$LEDGER" 2>/dev/null | sed -n '/Last .*blocks/,/^Block sources/p' | head -n -1
+  else
+    grep 'Valid block:' "$LOG" | tail -"$B" | grep -oE 'Valid block: [0-9]+: [0-9a-f]+ .* digestion from [0-9.]+' | tail -"$B"
+  fi
   echo "## DIFFICULTY (latest) ##"
   grep 'Current difficulty:' "$LOG" | tail -1
   echo "## BLOCK SOURCE TALLY (last $B blocks by provider IP) ##"
