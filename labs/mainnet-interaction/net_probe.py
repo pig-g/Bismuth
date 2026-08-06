@@ -540,3 +540,62 @@ def ban_report(events, *, threshold=30):
     else:
         lines.append("    (none)")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# network observe: one-shot read-only snapshot for manual inspection (stdout only,
+# no file writing). Mirrors observer_snapshot.sh for the CLI.
+# ---------------------------------------------------------------------------
+def observe(logtext, n=20):
+    """Build a human-readable one-shot snapshot from observer-node log text.
+
+    Returns a multi-line string (stdout-friendly). No files are written.
+    Sections: bans, peer health, consensus opinion, recent blocks (height:hash from
+    ip) + a block-source tally. n = how many recent blocks to show.
+    """
+    import re
+    from collections import Counter
+    lines = []
+
+    # --- bans ---
+    events = parse_ban_log(logtext)
+    lines.append(ban_report(events))
+
+    # --- peer health from status lines ---
+    def last_num(pattern, group=0):
+        ms = re.findall(pattern, logtext)
+        return ms[-1] if ms else "n/a"
+    known = last_num(r"Known Peers: (\d+)")
+    out = last_num(r"Number of Outbound connections: (\d+)")
+    nodes = last_num(r"Total number of nodes: (\d+)")
+    cons = last_num(r"Consensus height: (\d+)")
+    pct = last_num(r"Consensus height: \d+ = ([0-9.]+%)")
+    lines.append("")
+    lines.append("--- Peer health ---")
+    lines.append(f"KnownPeers={known}  Outbound={out}  ConsensusNodes={nodes}")
+    lines.append(f"ConsensusHeight={cons}  ConsensusPct={pct if pct!='n/a' else pct}")
+    op = last_num(r"Last block opinion: (.*)")
+    lines.append(f"Consensus opinion: {op}" if op != "n/a" else "Consensus opinion: n/a")
+
+    # --- recent blocks (height:hash from ip) ---
+    blocks = re.findall(r"Valid block: (\d+): ([0-9a-f]+) .*? digestion from ([0-9.]+)", logtext)
+    lines.append("")
+    lines.append(f"--- Last {n} blocks (height:hash from ip) ---")
+    if blocks:
+        for (h, hsh, ip) in blocks[-n:]:
+            lines.append(f"  {h}: {hsh} from {ip}")
+        src = Counter(ip for (_h, _hs, ip) in blocks[-n:])
+        lines.append("Block sources (last {}):".format(n))
+        for ip, c in src.most_common():
+            lines.append(f"    {ip}: {c}")
+        dom = src.most_common(1)
+        if dom and dom[0][1] >= int(n * 0.7):
+            lines.append(f"NOTE: {dom[0][0]} supplied {dom[0][1]}/{n} blocks (single-provider dominant)")
+    else:
+        lines.append("  (no valid-block events found)")
+
+    # --- difficulty ---
+    diffs = re.findall(r"Current difficulty: ([0-9.]+)", logtext)
+    if diffs:
+        lines.append(f"Difficulty: {diffs[-1]}")
+    return "\n".join(lines)

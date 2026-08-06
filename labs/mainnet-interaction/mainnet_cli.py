@@ -194,6 +194,15 @@ def cmd_net_ban(logfile):
         text = fh.read()
     events = net_probe.parse_ban_log(text)
     print(net_probe.ban_report(events))
+
+
+def cmd_net_observe(logfile, n=20):
+    """One-shot observer snapshot from a node log: bans + peers + consensus +
+    recent blocks (height:hash from ip). Prints to stdout only; no file writing."""
+    with open(logfile, "r", encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    print(net_probe.observe(text, n=n))
+    return 0
     return 0
 
 
@@ -270,6 +279,13 @@ def main(argv):
             if len(args) < 2:
                 raise ValueError("ban-analyze requires a LOGFILE\nusage: net ban-analyze <node.log>")
             return cmd_net_ban(args[1]) or 0
+        if command == "net" and args and args[0] == "observe":
+            if len(args) < 2:
+                raise ValueError("observe requires a NODE_LOG\nusage: net observe <node.log> [--n N]")
+            n = 20
+            if "--n" in args:
+                n = int(args[args.index("--n") + 1])
+            return cmd_net_observe(args[1], n=n) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
