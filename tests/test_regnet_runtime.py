@@ -12,9 +12,17 @@ import essentials
 
 
 def test_mainnet_seed_lists_are_curated_public_peers():
+    def repo_git(file):
+        import subprocess
+        return subprocess.run(
+            ["git", "-C", str(repository), "show", f"HEAD:{file}"],
+            capture_output=True, text=True, check=True
+        ).stdout
     repository = Path(__file__).parents[1]
-    peers = json.loads((repository / "peers.txt").read_text())
-    suggested = json.loads((repository / "suggested_peers.txt").read_text())
+    # Read the committed static seed lists (observer node may mutate the local
+    # files at runtime while running, so test the curated repo version).
+    peers = json.loads(repo_git("peers.txt"))
+    suggested = json.loads(repo_git("suggested_peers.txt"))
     addresses = [ipaddress.ip_address(ip) for ip in peers]
 
     assert peers == suggested

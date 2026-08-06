@@ -355,3 +355,25 @@ def test_ban_report_unknown_reason_flagged():
     events = np.parse_ban_log(text)
     out = np.ban_report(events)
     assert "unknown" in out
+def test_observe_parses_ban_peers_blocks(tmp_path):
+    logtext = (
+        "WARNING: Added 2 warning(s) to 1.2.3.4: Forked (2 / 30)\n"
+        "1.2.3.4 is banned: Forked\n"
+        "INFO: Status: Known Peers: 7\n"
+        "INFO: Status: Consensus height: 100 = 100.0%\n"
+        "INFO: process_block_data(529) Valid block: 100: aabb11 with 1 txs, digestion from 5.6.7.8 completed in 0s.\n"
+        "INFO: process_block_data(529) Valid block: 101: ccdd22 with 1 txs, digestion from 5.6.7.8 completed in 0s.\n"
+    )
+    out = np.observe(logtext, n=5)
+    assert "KnownPeers=7" in out
+    assert "ConsensusHeight=100" in out
+    assert "Forked" in out
+    assert "101: ccdd22 from 5.6.7.8" in out
+    assert "5.6.7.8: 2" in out
+
+
+def test_observe_single_provider_note():
+    logtext = "\n".join(f"INFO: Valid block: {i}: {i:08x} with 1 txs, digestion from 9.9.9.9 completed in 0s." for i in range(20))
+    out = np.observe(logtext, n=20)
+    assert "single-provider dominant" in out
+    assert "9.9.9.9: 20" in out
