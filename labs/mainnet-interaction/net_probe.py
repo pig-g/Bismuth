@@ -704,3 +704,133 @@ def miner_trace_report(logtext, ledger_db, wallet=None, n=1000, top=10):
                 lines.append(f"    >> likely relay/miner node: {top_ip}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+# ---------------------------------------------------------------------------
+# network topology: ask each seed (via hello handshake) for its peer list,
+# then merge into a whole-network view (which node knows which nodes).
+# ---------------------------------------------------------------------------
+def collect_topology(seeds, *, timeout=8):
+    """Connect to each seed and collect which peers it knows via the raw 'hello'
+    handshake (node.py: 'hello' -> send "peers", send peer_list_disk_format, send "sync").
+    Uses Bismuth's own connections.send/receive framing so we can drain multi-part
+    responses that wantonly command() can't. Returns:
+        {seed_ip: {'ok': bool, 'error': str|None, 'peers': list}}
+    plus '_all_known' = union of every peer set.
+    """
+    import socket
+    try:
+        from connections import send, receive
+    except Exception:
+        try:
+            import sys, os
+            repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            sys.path.insert(0, repo)
+            from connections import send, receive
+        except Exception as exc:
+            return {"_error": f"cannot import connections: {exc}"}
+
+    result = {}
+    all_known = set()
+    for seed in seeds:
+        host, _, port_s = seed.partition(":")
+        port = int(port_s or 5658)
+        info = {"ok": False, "error": None, "peers": []}
+        s = None
+        try:
+            s = socket.create_connection((host, port), timeout=timeout)
+            s.settimeout(timeout)
+            send(s, "hello")
+            marker = receive(s, timeout=timeout)  # -> "peers"
+            if marker != "peers":
+                info["error"] = f"unexpected hello reply: {marker!r}"
+            else:
+                peer_payload = receive(s, timeout=timeout)  # peer_list_disk_format
+                peers = _parse_peer_payload(peer_payload)
+                info["peers"] = peers
+                info["ok"] = True
+                all_known.update(peers)
+        except Exception as exc:
+            info["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        result[seed] = info
+    result["_all_known"] = sorted(all_known)
+    return result
+
+
+def _parse_peer_payload(payload):
+    """Parse the peer_list_disk_format payload (json dict {ip:port} or plain text)
+    into a list of ip strings."""
+    import json
+    if isinstance(payload, dict):
+        return list(payload.keys())
+    if isinstance(payload, list):
+        return [str(x) for x in payload]
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text:
+            return []
+        try:
+            d = json.loads(text)
+            if isinstance(d, dict):
+                return list(d.keys())
+            if isinstance(d, list):
+                return [str(x) for x in d]
+        except Exception:
+            pass
+        out = []
+        NL = chr(10)
+        for line in text.replace(",", NL).splitlines():
+            line = line.strip().strip('"').strip("'").rstrip(",")
+            if not line or line in "{}[]":
+                continue
+            ip = line.split(":")[0]
+            if ip and all(c.isdigit() or c == "." for c in ip) and len(ip.split(".")) == 4:
+                out.append(ip)
+        return out
+    return []
+
+
+def topology_report(topology, seeds, top_hubs=8):
+    """Human-readable whole-network view from collect_topology output.
+
+    Includes: reachability, union node count, per-seed view, and a hub analysis
+    (which nodes are known by the most seeds => likely connectivity hubs).
+    """
+    from collections import Counter
+    all_known = topology.get("_all_known", [])
+    lines = []
+    reachable = [s for s in seeds if topology.get(s, {}).get("ok")]
+    lines.append(f"Seeds reachable: {len(reachable)}/{len(seeds)}")
+    lines.append(f"Total unique nodes known across all seeds: {len(all_known)}")
+    # frequency: how many seeds list each node
+    freq = Counter()
+    for seed in seeds:
+        info = topology.get(seed, {})
+        if info.get("ok"):
+            for p in info.get("peers", []):
+                freq[p] += 1
+    lines.append(""); lines.append("--- Per-seed peer view ---")
+    seen = set()
+    for seed in seeds:
+        info = topology.get(seed, {})
+        if not info.get("ok"):
+            lines.append(f"  {seed}: ERR {info.get('error')}")
+            continue
+        peers = info["peers"]
+        dup = sum(1 for p in peers if p in seen)
+        seen.update(peers)
+        lines.append(f"  {seed}: knows {len(peers)} peers (new={len(peers)-dup})")
+    lines.append(""); lines.append("--- Hub analysis (nodes most seeds know) ---")
+    hubs = [x for x in freq.most_common(top_hubs) if x[0] not in ("127.0.0.1", "127.1.2.3")]
+    if hubs:
+        for ip, cnt in hubs:
+            lines.append(f"  {ip}  (known by {cnt}/{len(reachable)} seeds)")
+    lines.append("")
+    lines.append(f"Node IP set (union): {sorted(set(all_known))}")
+    return chr(10).join(lines)

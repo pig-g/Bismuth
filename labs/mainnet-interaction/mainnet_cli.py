@@ -215,6 +215,13 @@ def cmd_net_miner_trace(logfile, ledger, wallet=None, n=1000, top=10):
     return 0
 
 
+def cmd_net_topology():
+    """Query every seed's peer list (hello) and report the union = whole network."""
+    topo = net_probe.collect_topology(MAINNET_SEEDS)
+    print(net_probe.topology_report(topo, MAINNET_SEEDS))
+    return 0
+
+
 def cmd_send(wallet, to, amount, op="", data="", assume_yes=False):
     print(mainnet_rpc.MAINNET_WARNING)
     print()
@@ -311,6 +318,8 @@ def main(argv):
             if "--top" in args:
                 top = int(args[args.index("--top") + 1])
             return cmd_net_miner_trace(args[2], ledger, wallet=wallet, n=n, top=top) or 0
+        if command == "net" and args and args[0] == "topology":
+            return cmd_net_topology() or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:

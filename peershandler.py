@@ -506,8 +506,8 @@ class Peers:
                 self.warning_list.clear()
                 self._warning_counts.clear()
 
-            if pool_size < 10:
-                self.app_log.warning(f"Only {pool_size} connections active, resetting the connection history")
+            if pool_size < self.config.max_connections:
+                self.app_log.warning(f"Only {pool_size} connections active, resetting the connection history (max_connections={self.config.max_connections})")
                 self.reset_tried()
 
             ban_size = len(self.banlist)
