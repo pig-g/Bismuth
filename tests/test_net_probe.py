@@ -1,27 +1,19 @@
 import importlib.util
 from pathlib import Path
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LAB = REPO_ROOT / "labs" / "mainnet-interaction"
-
-
 def load():
     spec = importlib.util.spec_from_file_location("net_probe", LAB / "net_probe.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
-
 np = load()
-
-
 class FakeClient:
     def __init__(self, version="mainnet0023", status=None, error=None):
         self.version = version
         self.status = status or {}
         self.error = error
         self.commands = []
-
     def command(self, cmd, opts=None):
         self.commands.append((cmd, opts))
         if cmd == "getversion":
@@ -33,20 +25,14 @@ class FakeClient:
                 raise RuntimeError("down")
             return self.status
         raise AssertionError("unexpected command: " + cmd)
-
-
 STATUS_OK = {
     "blocks": 1000, "difficulty": 88.1, "consensus": 1000, "consensus_percent": 80.0,
     "last_block_ago": 10, "connections": 4,
 }
-
-
 def fake_factory(spec):
     def factory(seed):
         return spec[seed]
     return factory
-
-
 def test_probe_seed_captures_fields():
     c = FakeClient(version="mainnet0022", status=dict(STATUS_OK, blocks=1005))
     p = np.probe_seed(lambda seed: c, "seed1:5658")
@@ -59,8 +45,6 @@ def test_probe_seed_captures_fields():
     assert p.last_block_ago == 10
     cmds = {c for c, _ in c.commands}
     assert cmds <= {"getversion", "statusjson"}
-
-
 def test_consensus_height_is_most_common():
     seeds = {
         "a": FakeClient(status=dict(STATUS_OK, blocks=1000)),
@@ -70,8 +54,6 @@ def test_consensus_height_is_most_common():
     }
     r = np.probe_all(fake_factory(seeds), list(seeds))
     assert r.consensus_height() == 1000
-
-
 def test_divergence_flags_straggler():
     seeds = {
         "a": FakeClient(status=dict(STATUS_OK, blocks=1000)),
@@ -81,8 +63,6 @@ def test_divergence_flags_straggler():
     }
     r = np.probe_all(fake_factory(seeds), list(seeds))
     assert r.diverging_seeds() == ["straggler"]
-
-
 def test_no_divergence_when_uniform():
     seeds = {
         "a": FakeClient(status=dict(STATUS_OK, blocks=1000)),
@@ -90,8 +70,6 @@ def test_no_divergence_when_uniform():
     }
     r = np.probe_all(fake_factory(seeds), list(seeds))
     assert r.diverging_seeds() == []
-
-
 def test_version_mismatch_detected():
     seeds = {
         "a": FakeClient(version="mainnet0023"),
@@ -100,8 +78,6 @@ def test_version_mismatch_detected():
     r = np.probe_all(fake_factory(seeds), list(seeds))
     assert r.version_mismatch is True
     assert r.versions() == {"mainnet0023", "mainnet0022"}
-
-
 def test_single_seed_failure_is_isolated():
     seeds = {
         "ok1": FakeClient(status=dict(STATUS_OK, blocks=1000)),
@@ -114,8 +90,6 @@ def test_single_seed_failure_is_isolated():
     down = [p for p in r.probes if p.seed == "down"][0]
     assert not down.ok
     assert down.error
-
-
 def test_report_contains_flags():
     seeds = {
         "a": FakeClient(version="mainnet0023", status=dict(STATUS_OK, blocks=1000)),
@@ -126,8 +100,6 @@ def test_report_contains_flags():
     assert "DIVERGENCE" in txt
     assert "VERSION MISMATCH" in txt
     assert "Consensus height" in txt
-
-
 def _healthy_result():
     seeds = {
         "a": FakeClient(version="mainnet0023", status=dict(STATUS_OK)),
@@ -135,16 +107,12 @@ def _healthy_result():
         "c": FakeClient(version="mainnet0023", status=dict(STATUS_OK)),
     }
     return np.probe_all(fake_factory(seeds), list(seeds))
-
-
 def test_health_score_healthy():
     r = _healthy_result()  # STATUS_OK: blocks=1000, last=10s, cons=80%, uniform version
     h = np.health_score(r)
     assert h["score"] == 100
     assert h["grade"] == "HEALTHY"
     assert not h["reasons"]
-
-
 def test_health_score_deducts_on_stall():
     seeds = {
         "a": FakeClient(status=dict(STATUS_OK, last_block_ago=900)),
@@ -155,8 +123,6 @@ def test_health_score_deducts_on_stall():
     assert h["score"] < 100
     assert any("stall" in x for x in h["reasons"])
     assert h["grade"] != "HEALTHY"
-
-
 def test_health_score_deducts_on_divergence_and_version():
     seeds = {
         "a": FakeClient(version="mainnet0023", status=dict(STATUS_OK, blocks=1000)),
@@ -167,15 +133,11 @@ def test_health_score_deducts_on_divergence_and_version():
     assert h["score"] <= 70  # 20 divergence + 10 version
     assert any("divergence" in x for x in h["reasons"])
     assert any("version mismatch" in x for x in h["reasons"])
-
-
 def test_health_score_no_seeds():
     r = np.ProbeResult()
     h = np.health_score(r)
     assert h["score"] == 0
     assert h["grade"] == "SUSPICIOUS"
-
-
 def test_fork_check_agrees():
     block = {"4928852": {"block_height": 4928852, "block_hash": "hashA"}}
     seeds = {"s1": FakeClient(), "s2": FakeClient()}
@@ -187,8 +149,6 @@ def test_fork_check_agrees():
     rep = np.fork_check(fake_factory(seeds), list(seeds), 4928852)
     assert rep["fork"] is False
     assert set(rep["hashes"].values()) == {"hashA"}
-
-
 def test_fork_check_detects_split():
     seeds = {
         "s1": FakeClient(),
@@ -205,8 +165,6 @@ def test_fork_check_detects_split():
     rep = np.fork_check(fake_factory(seeds), list(seeds), 4928852)
     assert rep["fork"] is True
     assert len(rep["distinct_hashes"]) == 2
-
-
 def test_fork_report_marks_fork():
     seeds = {"s1": FakeClient(), "s2": FakeClient()}
     def fa(cmd, opts=None):
@@ -218,8 +176,6 @@ def test_fork_report_marks_fork():
     rep = np.fork_check(fake_factory(seeds), list(seeds), 5)
     txt = np.fork_report(rep)
     assert "FORK" in txt
-
-
 class FakeMinerClient(FakeClient):
     """FakeClient that also answers the Phase 3/4 mining RPCs."""
     def __init__(self, blocks, difficulty=None, mempool=3, status=None):
@@ -227,7 +183,6 @@ class FakeMinerClient(FakeClient):
         self._blocks = blocks
         self.difficulty = difficulty or {"difficulty": 87.9, "block_time": 63.2, "time_to_generate": 32.6}
         self.mempool = mempool
-
     def command(self, cmd, opts=None):
         if cmd == "api_getblockrange":
             return self._blocks
@@ -236,13 +191,9 @@ class FakeMinerClient(FakeClient):
         if cmd == "mpgetjson":
             return [1] * self.mempool
         return super().command(cmd, opts)
-
-
 def _sample_blocks(base=1000.0, n=5):
     """Blocks spaced ~10s apart so mean interval is computable and deterministic."""
     return {str(base + i): {"mining_tx": {"timestamp": base + i * 10.0}} for i in range(n)}
-
-
 def test_mine_stats_computes_intervals():
     blocks = _sample_blocks(n=5)
     c = FakeMinerClient(blocks)
@@ -251,22 +202,16 @@ def test_mine_stats_computes_intervals():
     assert s["n_blocks"] == 5
     assert s["mempool_txs"] == 3
     assert s["difficulty"] == 87.9
-
-
 def test_mine_stats_offset_vs_target():
     blocks = _sample_blocks(n=4)
     c = FakeMinerClient(blocks)
     s = np.mine_stats(lambda seed: c, "s", 1030, n_blocks=4)
     assert s["offset_vs_target_s"] == -50.0
-
-
 def test_mine_stats_handles_empty():
     c = FakeMinerClient({})
     s = np.mine_stats(lambda seed: c, "s", 100, n_blocks=10)
     assert s["mean_interval_s"] is None
     assert "n/a" in np.mine_report(s)
-
-
 def test_mine_report_contains_fields():
     blocks = _sample_blocks(n=5)
     c = FakeMinerClient(blocks)
@@ -275,8 +220,6 @@ def test_mine_report_contains_fields():
     assert "mean block interval" in txt
     assert "difficulty" in txt
     assert "mempool" in txt
-
-
 def test_record_sample_collects_metrics():
     seeds = {
         "a": FakeMinerClient(_sample_blocks(n=5), mempool=2),
@@ -287,8 +230,6 @@ def test_record_sample_collects_metrics():
     assert s["block_height"] == 1000
     assert s["difficulty"] == 87.9
     assert s["mempool_txs"] == 2
-
-
 def test_append_and_load_jsonl_roundtrip(tmp_path):
     p = tmp_path / "data.jsonl"
     np.append_jsonl(p, {"ts": 1.0, "block_height": 1000})
@@ -297,32 +238,22 @@ def test_append_and_load_jsonl_roundtrip(tmp_path):
     assert len(rows) == 2
     assert rows[0]["block_height"] == 1000
     assert rows[1]["block_height"] == 1001
-
-
 def test_report_series_empty():
     assert "no recorded data" in np.report_series([])
-
-
 def test_report_series_single_metric():
     rows = [{"block_height": 1000}, {"block_height": 1010}, {"block_height": 1020}]
     out = np.report_series(rows, metric="block_height")
     assert "block_height" in out
     assert "min=1000.000" in out
     assert "max=1020.000" in out
-
-
 def test_report_series_trend():
     rows = [{"difficulty": 80.0}, {"difficulty": 90.0}, {"difficulty": 100.0}]
     out = np.report_series(rows)
     assert "difficulty" in out
-
-
 def test_report_series_ignores_non_numeric():
     rows = [{"block_height": None}, {"block_height": "n/a"}, {"block_height": 5}]
     out = np.report_series(rows, metric="block_height")
     assert "min=5.000" in out
-
-
 def test_parse_ban_log_warnings_and_bans():
     text = ("Added 2 warning(s) to 1.2.3.4: Forked (4 / 30)\n"
             "Added 10 warning(s) to 5.6.7.8: Consensus deviation too high (10 / 30)\n"
@@ -334,12 +265,8 @@ def test_parse_ban_log_warnings_and_bans():
     assert events[0]["running"] == 4
     assert events[2]["type"] == "ban"
     assert events[2]["reason"] == "Consensus deviation too high"
-
-
 def test_ban_report_empty():
     assert "no ban activity" in np.ban_report([])
-
-
 def test_ban_report_groups_by_reason():
     text = ("Added 2 warning(s) to 1.1.1.1: Forked (2 / 30)\n"
             "1.2.3.4 is banned: Rollback\n"
@@ -348,8 +275,6 @@ def test_ban_report_groups_by_reason():
     out = np.ban_report(events)
     assert "Rollback x2" in out
     assert "Consensus blockers observed" in out
-
-
 def test_ban_report_unknown_reason_flagged():
     text = "9.9.9.9 is banned: Something new\n"
     events = np.parse_ban_log(text)
@@ -370,8 +295,6 @@ def test_observe_parses_ban_peers_blocks(tmp_path):
     assert "Forked" in out
     assert "101: ccdd22 from 5.6.7.8" in out
     assert "5.6.7.8: 2" in out
-
-
 def test_observe_single_provider_note():
     logtext = "\n".join(f"INFO: Valid block: {i}: {i:08x} with 1 txs, digestion from 9.9.9.9 completed in 0s." for i in range(20))
     out = np.observe(logtext, n=20)
@@ -394,8 +317,6 @@ def test_observe_with_ledger_shows_miner(tmp_path):
     out = np.observe(log, n=5, ledger_db=db)
     assert "mined_by=AAAMINER" in out, out
     assert "mined_by=BBBMINER" in out, out
-
-
 def test_observe_without_ledger_no_miner(tmp_path):
     log = "INFO: process_block_data Valid block: 100: aabbccddee with 1 txs, digestion from 1.2.3.4 completed in 0s.\n"
     out = np.observe(log, n=5)
@@ -419,9 +340,22 @@ def test_miner_trace_ranks_provider_ips(tmp_path):
     assert "MINERAA" in out
     assert "1.2.3.4: 3" in out
     assert "75.0%" in out
-
-
 def test_miner_trace_empty_on_no_data(tmp_path):
     out = np.miner_trace_report("no valid blocks here", None, wallet="X", n=100)
     assert "No block" in out
-
+def test_parse_peer_payload_json_dict():
+    out = np._parse_peer_payload('{"1.2.3.4": 5658, "5.6.7.8": 5658}')
+    assert "1.2.3.4" in out and "5.6.7.8" in out and len(out) == 2
+def test_parse_peer_payload_text():
+    out = np._parse_peer_payload('1.2.3.4' + chr(10) + '5.6.7.8' + chr(10))
+    assert "1.2.3.4" in out and "5.6.7.8" in out
+def test_topology_report_union_and_hubs():
+    topo = {
+        "_all_known": ["1.2.3.4", "5.6.7.8", "9.9.9.9"],
+        "a": {"ok": True, "peers": ["1.2.3.4", "5.6.7.8"]},
+        "b": {"ok": True, "peers": ["1.2.3.4", "9.9.9.9"]},
+        "c": {"ok": True, "peers": ["5.6.7.8"]},
+    }
+    out = np.topology_report(topo, ["a", "b", "c"])
+    assert "Total unique nodes known across all seeds: 3" in out
+    assert "1.2.3.4" in out
