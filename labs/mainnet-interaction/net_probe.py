@@ -546,34 +546,32 @@ def ban_report(events, *, threshold=30):
 # network observe: one-shot read-only snapshot for manual inspection (stdout only,
 # no file writing). Mirrors observer_snapshot.sh for the CLI.
 # ---------------------------------------------------------------------------
-def _load_miners(ledger_db):
-    """Map block_hash prefix -> miner info for a SQLite Bismuth ledger.
+def _load_miners(ledger_db, heights=None):
+    """Return {block_hash_prefix_10: miner info} for the requested block heights.
 
-    In Bismuth the miner of a block is the recipient of that block's reward
-
-    transaction (the block's coinbase-like tx). The observer log only prints the
-
-    first 10 hex chars of each block hash, while the ledger stores the full
-
-    56-char hash. So we key by the 10-char prefix (hash[:10]).
-    Returns {prefix: {'address': recipient, 'alias': ''}} (empty on problems).
+    Bismuth's ledger stores per-block reward txs; the reward tx recipient is the
+    miner. We query by block_height (indexed, fast) rather than scanning the whole
+    table. Returns {} on missing ledger or empty result.
     """
     import sqlite3
     import os
-    if not os.path.isfile(ledger_db):
+    if not ledger_db or not os.path.isfile(ledger_db):
         return {}
+    if not heights:
+        return {}
+    heights = [int(h) for h in heights]
+    miners = {}
     try:
         conn = sqlite3.connect("file:" + ledger_db, uri=True)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        # Bismuth keeps one reward tx per block; the block_hash column
-        # identifies it. Recipient = the miner's address.
-        cur.execute(
-            "SELECT block_hash, recipient FROM transactions "
-            "WHERE reward > 0 AND block_hash IS NOT NULL AND length(block_hash)>=40"
-        )
-        miners = {row["block_hash"][:10]: {"address": row["recipient"], "alias": ""}
-                  for row in cur.fetchall() if len(row["block_hash"]) >= 10}
+        for h in heights:
+            row = cur.execute(
+                "SELECT block_hash, recipient FROM transactions "
+                "WHERE block_height=? AND reward>0 LIMIT 1", (h,)
+            ).fetchone()
+            if row and row["block_hash"] and len(row["block_hash"]) >= 10:
+                miners[row["block_hash"][:10]] = {"address": row["recipient"], "alias": ""}
         conn.close()
         return miners
     except Exception:
@@ -582,6 +580,7 @@ def _load_miners(ledger_db):
         except Exception:
             pass
         return {}
+
 
 def observe(logtext, n=20, ledger_db=None):
     """Build a human-readable one-shot snapshot from observer-node log text.
@@ -616,7 +615,7 @@ def observe(logtext, n=20, ledger_db=None):
 
     # --- recent blocks (height:hash from ip) ---
     blocks = re.findall(r"Valid block: (\d+): ([0-9a-f]+) .*? digestion from ([0-9.]+)", logtext)
-    miners = _load_miners(ledger_db) if ledger_db else {}
+    miners = _load_miners(ledger_db, [int(b[0]) for b in blocks]) if ledger_db else {}
     lines.append("")
     lines.append(f"--- Last {n} blocks (height:hash from ip) ---")
     if blocks:
