@@ -32,7 +32,7 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `net record --out DIR --interval N --rounds R` | record metric samples to a local JSONL file on an interval *(Phase 4)* | read-only + local file |
 | `net report --from-json FILE [--metric X]` | time-series research report from a recorded JSONL *(Phase 4)* | local read |
 | `net ban-analyze LOGFILE` | analyze an observer-node ban log: bans by reason, warning accumulation, consensus blockers *(Phase 5)* | local read |
-| `net observe NODE_LOG [--n N]` | one-shot manual snapshot from a node log: bans + peer health + consensus + last N blocks (height:hash from ip) — stdout only, no file writing | local read |
+| `net observe NODE_LOG [--n N] [--ledger LEDGER.DB]` | one-shot manual snapshot from a node log: bans + peer health + consensus + last N blocks (height:hash from ip, + miner address when --ledger given) — stdout only, no file writing | local read |
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 
