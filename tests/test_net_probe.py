@@ -400,4 +400,28 @@ def test_observe_without_ledger_no_miner(tmp_path):
     log = "INFO: process_block_data Valid block: 100: aabbccddee with 1 txs, digestion from 1.2.3.4 completed in 0s.\n"
     out = np.observe(log, n=5)
     assert "mined_by" not in out
+def test_miner_trace_ranks_provider_ips(tmp_path):
+    import sqlite3
+    db = str(tmp_path / "ledger.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE transactions (block_height INTEGER, recipient TEXT, reward REAL, block_hash TEXT)")
+    h = "aabbccddee" + "f"*46
+    for bh in (100, 101, 102, 103):
+        conn.execute("INSERT INTO transactions VALUES (?, 'MINERAA', 2.5, ?)", (bh, h))
+    conn.commit(); conn.close()
+    # provider ip 1.2.3.4 delivered 3 of 4 of MINERAA's blocks; 5.6.7.8 delivered 1
+    providers = [(100,'1.2.3.4'),(101,'1.2.3.4'),(102,'5.6.7.8'),(103,'1.2.3.4')]
+    log = (chr(10)).join(
+        f"INFO: process_block_data Valid block: {bh}: aabbccddee with 1 txs, digestion from {ip} completed in 0s."
+        for bh, ip in providers
+    )
+    out = np.miner_trace_report(log, db, wallet="MINERAA", n=100)
+    assert "MINERAA" in out
+    assert "1.2.3.4: 3" in out
+    assert "75.0%" in out
+
+
+def test_miner_trace_empty_on_no_data(tmp_path):
+    out = np.miner_trace_report("no valid blocks here", None, wallet="X", n=100)
+    assert "No block" in out
 
