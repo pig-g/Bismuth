@@ -377,3 +377,27 @@ def test_observe_single_provider_note():
     out = np.observe(logtext, n=20)
     assert "single-provider dominant" in out
     assert "9.9.9.9: 20" in out
+def test_observe_with_ledger_shows_miner(tmp_path):
+    import sqlite3
+    db = str(tmp_path / "ledger.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE transactions (block_height INTEGER, recipient TEXT, reward REAL, block_hash TEXT)")
+    # ledger stores full 56-char hashes; log prints first 10 chars
+    conn.execute("INSERT INTO transactions VALUES (100, 'AAAMINER', 2.5, ?)", ("aabbccddee" + "f" * 46,))
+    conn.execute("INSERT INTO transactions VALUES (101, 'BBBMINER', 2.5, ?)", ("1122334455" + "f" * 46,))
+    conn.commit()
+    conn.close()
+    log = (
+        "INFO: process_block_data Valid block: 100: aabbccddee with 1 txs, digestion from 1.2.3.4 completed in 0s.\n"
+        "INFO: process_block_data Valid block: 101: 1122334455 with 1 txs, digestion from 5.6.7.8 completed in 0s.\n"
+    )
+    out = np.observe(log, n=5, ledger_db=db)
+    assert "mined_by=AAAMINER" in out, out
+    assert "mined_by=BBBMINER" in out, out
+
+
+def test_observe_without_ledger_no_miner(tmp_path):
+    log = "INFO: process_block_data Valid block: 100: aabbccddee with 1 txs, digestion from 1.2.3.4 completed in 0s.\n"
+    out = np.observe(log, n=5)
+    assert "mined_by" not in out
+

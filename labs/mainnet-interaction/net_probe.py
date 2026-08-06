@@ -546,7 +546,44 @@ def ban_report(events, *, threshold=30):
 # network observe: one-shot read-only snapshot for manual inspection (stdout only,
 # no file writing). Mirrors observer_snapshot.sh for the CLI.
 # ---------------------------------------------------------------------------
-def observe(logtext, n=20):
+def _load_miners(ledger_db):
+    """Map block_hash prefix -> miner info for a SQLite Bismuth ledger.
+
+    In Bismuth the miner of a block is the recipient of that block's reward
+
+    transaction (the block's coinbase-like tx). The observer log only prints the
+
+    first 10 hex chars of each block hash, while the ledger stores the full
+
+    56-char hash. So we key by the 10-char prefix (hash[:10]).
+    Returns {prefix: {'address': recipient, 'alias': ''}} (empty on problems).
+    """
+    import sqlite3
+    import os
+    if not os.path.isfile(ledger_db):
+        return {}
+    try:
+        conn = sqlite3.connect("file:" + ledger_db, uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        # Bismuth keeps one reward tx per block; the block_hash column
+        # identifies it. Recipient = the miner's address.
+        cur.execute(
+            "SELECT block_hash, recipient FROM transactions "
+            "WHERE reward > 0 AND block_hash IS NOT NULL AND length(block_hash)>=40"
+        )
+        miners = {row["block_hash"][:10]: {"address": row["recipient"], "alias": ""}
+                  for row in cur.fetchall() if len(row["block_hash"]) >= 10}
+        conn.close()
+        return miners
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {}
+
+def observe(logtext, n=20, ledger_db=None):
     """Build a human-readable one-shot snapshot from observer-node log text.
 
     Returns a multi-line string (stdout-friendly). No files are written.
@@ -579,11 +616,19 @@ def observe(logtext, n=20):
 
     # --- recent blocks (height:hash from ip) ---
     blocks = re.findall(r"Valid block: (\d+): ([0-9a-f]+) .*? digestion from ([0-9.]+)", logtext)
+    miners = _load_miners(ledger_db) if ledger_db else {}
     lines.append("")
     lines.append(f"--- Last {n} blocks (height:hash from ip) ---")
     if blocks:
         for (h, hsh, ip) in blocks[-n:]:
-            lines.append(f"  {h}: {hsh} from {ip}")
+            mn = miners.get(hsh)
+            if mn:
+                if mn.get("alias"):
+                    lines.append(f"  {h}: {hsh} from {ip}  mined_by={mn['address']} ({mn['alias']})")
+                else:
+                    lines.append(f"  {h}: {hsh} from {ip}  mined_by={mn['address']}")
+            else:
+                lines.append(f"  {h}: {hsh} from {ip}")
         src = Counter(ip for (_h, _hs, ip) in blocks[-n:])
         lines.append("Block sources (last {}):".format(n))
         for ip, c in src.most_common():
