@@ -834,3 +834,60 @@ def topology_report(topology, seeds, top_hubs=8):
     lines.append("")
     lines.append(f"Node IP set (union): {sorted(set(all_known))}")
     return chr(10).join(lines)
+
+
+def _is_public_ipv4(ip):
+    """True for a normal public IPv4 (filters loopback, RFC1918, link-local, …)."""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return isinstance(addr, ipaddress.IPv4Address) and addr.is_global
+
+
+def supernet_peers(topology):
+    """Whole-network union of peer IPs, filtered to public IPv4 only, sorted.
+
+    Enabler for the superconnector direction: given the per-seed peer lists
+    collected by ``collect_topology``, return the FULL set of real mainnet nodes
+    we should try to connect to, excluding loopback/private/link-local noise.
+    Pure helper (no I/O).
+    """
+    known = topology.get("_all_known", [])
+    return sorted(ip for ip in known if _is_public_ipv4(ip))
+
+
+def peer_export(topology, port="5658"):
+    """Build a ready-to-load peer-list dict {ip: port} from the whole-network union."""
+    return {ip: port for ip in supernet_peers(topology)}
+
+
+def write_peer_export(topology, path, port="5658"):
+    """Write the whole-network public peer dict as JSON (peers.txt format) to path.
+
+    Writes atomically (temp file + replace) and returns the number of peers
+    written; returns 0 on an unwritable/bad path without raising.
+    """
+    import json
+    import os
+    import tempfile
+    peers = peer_export(topology, port=port)
+    try:
+        path = os.fspath(path)
+        directory = os.path.dirname(path) or "."
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(json.dumps(peers))
+                fh.write("\n")
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+            return 0
+    except Exception:
+        return 0
+    return len(peers)

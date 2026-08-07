@@ -215,10 +215,18 @@ def cmd_net_miner_trace(logfile, ledger, wallet=None, n=1000, top=10):
     return 0
 
 
-def cmd_net_topology():
+def cmd_net_topology(export_path=None):
     """Query every seed's peer list (hello) and report the union = whole network."""
     topo = net_probe.collect_topology(MAINNET_SEEDS)
     print(net_probe.topology_report(topo, MAINNET_SEEDS))
+    if export_path:
+        n = net_probe.write_peer_export(topo, export_path)
+        if n:
+            total = len(topo.get("_all_known", []))
+            print(f"\nExported {n} public supernet peers -> {export_path}"
+                  f" (of {total} union incl. loopback/private)")
+        else:
+            print("\nexport failed: could not write peer list", file=sys.stderr)
     return 0
 
 
@@ -319,7 +327,10 @@ def main(argv):
                 top = int(args[args.index("--top") + 1])
             return cmd_net_miner_trace(args[2], ledger, wallet=wallet, n=n, top=top) or 0
         if command == "net" and args and args[0] == "topology":
-            return cmd_net_topology() or 0
+            export_path = None
+            if "--export-peers" in args:
+                export_path = args[args.index("--export-peers") + 1]
+            return cmd_net_topology(export_path) or 0
         print(f"unknown command: {command}", file=sys.stderr)
         return 1
     except (IndexError, ValueError) as exc:
