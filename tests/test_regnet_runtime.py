@@ -23,15 +23,27 @@ def test_mainnet_seed_lists_are_curated_public_peers():
     # files at runtime while running, so test the curated repo version).
     peers = json.loads(repo_git("peers.txt"))
     suggested = json.loads(repo_git("suggested_peers.txt"))
-    addresses = [ipaddress.ip_address(ip) for ip in peers]
 
-    assert peers == suggested
-    assert len(peers) == 9
-    assert set(peers.values()) == {"5658"}
-    assert all(
-        address.version == 4 and address.is_global and not address.is_multicast
-        for address in addresses
-    )
+    def is_public_v4(ip):
+        address = ipaddress.ip_address(ip)
+        return address.version == 4 and address.is_global and not address.is_multicast
+
+    # peers.txt is the node-managed bootstrap seed set; suggested_peers.txt is
+    # the operator-curated candidate pool that the node falls back to and
+    # promotes responsive peers from. Both committed lists must stay hygienic
+    # (public IPv4 only, port 5658) and free of gossip pollution.
+    for seed_map in (peers, suggested):
+        assert seed_map
+        assert set(seed_map.values()) == {"5658"}
+        assert len(seed_map) == len(set(seed_map))
+        assert all(is_public_v4(ip) for ip in seed_map)
+
+    # The candidate pool should be a superset of the bootstrap seeds and carry
+    # the topology-discovered nodes (a larger pool => more dialing options).
+    assert set(peers) <= set(suggested)
+    assert len(suggested) >= len(peers)
+    discovered = {"62.112.10.156", "185.184.192.210", "112.165.238.190"}
+    assert discovered <= set(suggested)
 
 
 def test_readme_lists_live_terranbase_explorer():
