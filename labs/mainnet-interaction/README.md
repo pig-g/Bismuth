@@ -33,6 +33,7 @@ This is the **separate mainnet track**, distinct from the regnet labs (Labs 0–
 | `net report --from-json FILE [--metric X]` | time-series research report from a recorded JSONL *(Phase 4)* | local read |
 | `net ban-analyze LOGFILE` | analyze an observer-node ban log: bans by reason, warning accumulation, consensus blockers *(Phase 5)* | local read |
 | `net observe NODE_LOG [--n N] [--ledger LEDGER.DB]` | one-shot manual snapshot from a node log: bans + peer health + consensus + last N blocks (height:hash from ip, + miner address when --ledger given) — stdout only, no file writing | local read |
+| `net topology [--export-peers FILE]` | poll every public seed's peer list and print the whole-network union + hub analysis; with `--export-peers FILE`, write the public supernet peer dict as `peers.txt`-format JSON for the observer's enlarged pool | read-only (+ local file with --export-peers) |
 | `wallet new <path>` | create a local wallet (private key stays local) | local only |
 | `send --wallet <p> --to <addr> --amount <a> [--op x] [--data y]` | locally sign + broadcast a small trial send | confirmed, small |
 

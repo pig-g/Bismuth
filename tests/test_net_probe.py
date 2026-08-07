@@ -359,3 +359,56 @@ def test_topology_report_union_and_hubs():
     out = np.topology_report(topo, ["a", "b", "c"])
     assert "Total unique nodes known across all seeds: 3" in out
     assert "1.2.3.4" in out
+
+
+def test_supernet_peers_filters_loopback_and_private():
+    # whole-network union containing loopback + RFC1918/link-local junk
+    topo = {
+        "_all_known": [
+            "1.2.3.4", "8.8.8.8", "9.9.9.9",
+            "127.0.0.1", "127.1.2.3",
+            "10.0.0.5", "172.16.0.1", "192.168.1.1", "169.254.0.1",
+        ]
+    }
+    out = np.supernet_peers(topo)
+    for keep in ("1.2.3.4", "8.8.8.8", "9.9.9.9"):
+        assert keep in out
+    for drop in ("127.0.0.1", "127.1.2.3", "10.0.0.5", "172.16.0.1",
+                 "192.168.1.1", "169.254.0.1"):
+        assert drop not in out
+    assert out == sorted(out)
+
+
+def test_supernet_peers_empty_on_only_local():
+    assert np.supernet_peers({"_all_known": ["127.0.0.1", "127.1.2.3"]}) == []
+    assert np.supernet_peers({"_all_known": []}) == []
+
+
+def test_peer_export_dict_format_and_port():
+    topo = {"_all_known": ["5.6.7.8", "1.2.3.4", "127.0.0.1"]}
+    d = np.peer_export(topo)
+    assert set(d) == {"1.2.3.4", "5.6.7.8"}
+    assert all(v == "5658" for v in d.values())
+    custom = np.peer_export(topo, port="5659")
+    assert all(v == "5659" for v in custom.values())
+
+
+def test_write_peer_export_writes_peers_json(tmp_path):
+    import json
+    topo = {"_all_known": ["1.2.3.4", "5.6.7.8", "127.0.0.1", "127.1.2.3"]}
+    p = tmp_path / "supernet_peers.txt"
+    n = np.write_peer_export(topo, p)
+    assert n == 2
+    data = json.loads(p.read_text())
+    assert set(data) == {"1.2.3.4", "5.6.7.8"}
+    assert all(v == "5658" for v in data.values())
+
+def test_write_peer_export_refuses_bad_path(tmp_path):
+    import json
+    topo = {"_all_known": ["1.2.3.4"]}
+    # directory-not-a-file path must fail cleanly rather than raise
+    target = tmp_path / "nope.txt"
+    target.mkdir()
+    n = np.write_peer_export(topo, target)
+    assert n == 0
+    assert not (tmp_path / "peers.bak").exists()
