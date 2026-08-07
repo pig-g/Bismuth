@@ -46,6 +46,9 @@ MAINNET_SEEDS = [
     "218.145.184.28:5658",
     "219.249.57.88:5658",
     "38.242.201.206:5658",
+    # newly discovered via net topology (whole-network union)
+    "62.112.10.156:5658",
+    "185.184.192.210:5658",
 ]
 
 

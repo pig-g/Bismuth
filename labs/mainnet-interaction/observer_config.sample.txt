@@ -6,7 +6,9 @@ verify=False
 version=mainnet0022
 version_allow=mainnet0021,mainnet0022,mainnet0023
 thread_limit=64
-rebuild_db=False
+rebuild_db=True
+# rebuild_db=True: ledger snapshot lacks derived indexes (aliases etc.),
+# so the node must build them on first start.
 debug=False
 debug_level=WARNING
 purge=True
