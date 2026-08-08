@@ -16,6 +16,32 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 B=${B:-20}
 {
   echo "######## $TS ########"
+  echo "## NODE LIVENESS / UPTIME ##"
+  # Is the observer node process alive? Report raw signal (not a dose of the
+  # stale-log problem): process presence + how recently node.log was written.
+  if pgrep -f '[n]ode.py.*config-custom' >/dev/null 2>&1; then
+    echo "NodeProcess=up"
+  else
+    echo "NodeProcess=down"
+  fi
+  if [ -f "$LOG" ]; then
+    LOG_MTIME=$(stat -c %Y "$LOG" 2>/dev/null)
+    if [ -n "$LOG_MTIME" ]; then
+      NOW=$(date +%s)
+      LOG_AGE=$(( NOW - LOG_MTIME ))
+      echo "LogLastWriteUTC=$(date -u -d "@$LOG_MTIME" +%Y-%m-%dT%H:%M:%SZ)"
+      echo "LogFreshSec=$LOG_AGE"
+      # Log written within the last 10 min => node actively producing data.
+      if [ "$LOG_AGE" -le 600 ]; then
+        echo "NodeLive=true"
+      else
+        echo "NodeLive=false  # stale log: metrics below may be a frozen/fake flatline"
+      fi
+    fi
+  else
+    echo "NodeLive=unknown  # no log file at $LOG"
+  fi
+
   echo "## BANS ##"
   BANLIST=$(grep 'Status: Banlist:' "$LOG" | tail -1 | sed -E 's/.*Banlist: //')
   echo "Banlist=$BANLIST"
