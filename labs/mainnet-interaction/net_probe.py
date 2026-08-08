@@ -809,6 +809,31 @@ def miner_trace_report(logtext, ledger_db, wallet=None, n=1000, top=10):
 # network topology: ask each seed (via hello handshake) for its peer list,
 # then merge into a whole-network view (which node knows which nodes).
 # ---------------------------------------------------------------------------
+def _find_bismuth_repo():
+    """Locate a Bismuth node checkout containing connections.py, for topology.
+
+    Checks (in order): $BISMUTH_REPO, the current working directory, and the
+    layout where the tool is cloned inside a Bismuth checkout. Returns None if
+    none contains connections.py.
+    """
+    import os
+    cands = []
+    if os.environ.get("BISMUTH_REPO"):
+        cands.append(os.environ["BISMUTH_REPO"])
+    cands.append(os.getcwd())
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands.append(os.path.dirname(os.path.dirname(os.path.dirname(here))))
+    seen = set()
+    for c in cands:
+        c = os.path.abspath(c)
+        if c in seen:
+            continue
+        seen.add(c)
+        if os.path.isfile(os.path.join(c, "connections.py")):
+            return c
+    return None
+
+
 def collect_topology(seeds, *, timeout=8):
     """Connect to each seed and collect which peers it knows via the raw 'hello'
     handshake (node.py: 'hello' -> send "peers", send peer_list_disk_format, send "sync").
@@ -818,16 +843,25 @@ def collect_topology(seeds, *, timeout=8):
     plus '_all_known' = union of every peer set.
     """
     import socket
+    import sys
+    err = None
     try:
         from connections import send, receive
-    except Exception:
-        try:
-            import sys, os
-            repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    except Exception as e1:
+        err = str(e1)
+        repo = _find_bismuth_repo()
+        if repo:
             sys.path.insert(0, repo)
-            from connections import send, receive
-        except Exception as exc:
-            return {"_error": f"cannot import connections: {exc}"}
+            try:
+                from connections import send, receive
+                err = None
+            except Exception as e2:
+                err = f"{e2}"
+        else:
+            err = ("could not locate a Bismuth checkout with connections.py "
+                   "(set BISMUTH_REPO, run from the repo, or add it to PYTHONPATH)")
+    if err:
+        return {"_error": f"cannot import connections: {err}"}
 
     result = {}
     all_known = set()
@@ -904,6 +938,10 @@ def topology_report(topology, seeds, top_hubs=8):
     from collections import Counter
     all_known = topology.get("_all_known", [])
     lines = []
+    init_err = topology.get("_error")
+    if init_err:
+        lines.append(f"  topology unavailable: {init_err}")
+        return "\n".join(lines)
     reachable = [s for s in seeds if topology.get(s, {}).get("ok")]
     lines.append(f"Seeds reachable: {len(reachable)}/{len(seeds)}")
     lines.append(f"Total unique nodes known across all seeds: {len(all_known)}")
