@@ -33,12 +33,12 @@ import net_probe  # noqa: E402
 
 # Public Bismuth mainnet node (port 5658 is the node protocol port). One is
 # enough for the CLI; BismuthClient can also be pointed at any reachable seed.
-DEFAULT_SEED = "185.100.232.131:5658"
+DEFAULT_SEED = "185.100.232.5:5658"
 
 
 MAINNET_SEEDS = [
     "112.165.237.63:5658",
-    "185.100.232.131:5658",
+    "112.165.238.190:5658",
     "185.100.232.5:5658",
     "198.13.36.20:5658",
     "207.246.101.70:5658",
@@ -193,7 +193,8 @@ def cmd_net_ban(logfile):
     with open(logfile, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
     events = net_probe.parse_ban_log(text)
-    print(net_probe.ban_report(events))
+    us_banned = net_probe.parse_us_banned(text)
+    print(net_probe.ban_report(events, us_banned=us_banned))
 
 
 def cmd_net_observe(logfile, n=20, ledger=None):

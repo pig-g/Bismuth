@@ -505,8 +505,84 @@ def parse_ban_log(text):
     return events
 
 
-def ban_report(events, *, threshold=30):
-    """Summarize parsed ban events: bans by reason (the catalogue) and warnings."""
+def parse_us_banned(text):
+    """Detect peers that ban *us*, from our own node.log, and whether/when they
+    later lifted the ban.
+
+    Ban signature: an outbound TCP connect succeeds (`Outbound: Connected to
+    IP:port`) then the peer drops us (`Could not connect ... Socket EOF`),
+    repeated for the same peer = it has us on its banlist. A plain timeout
+    (no `Connected`) is a host-down/firewall, not a ban.
+
+    A ban is considered lifted once a later outbound to that peer succeeds again
+    (`Synchronization ... finished` / `same block as ...` / `is at block height`)
+    at a timestamp *after* the last Socket EOF.
+
+    Returns a list of dicts {ip, port, count, first, last, unbanned}, sorted by
+    first-seen. ``unbanned`` is None when no release was observed in this log.
+    """
+    import re
+    ts_re = re.compile(r"^(\d{4}-\d{2}-\d{2} [\d:,]+)")
+    cn_re = re.compile(r"Outbound: Connected to ([\d.]+):(\d+)")
+    eof_re = re.compile(r"Could not connect to ([\d.]+):(\d+): Connections: Socket EOF")
+    ok_re = re.compile(
+        r"(?:Synchronization with ([\d.]+)(?::\d+)? finished"
+        r"|same block as ([\d.]+)"
+        r"|Node ([\d.]+):\d+ is at block height)"
+    )
+
+    def _ts():
+        m = ts_re.match(line)
+        return m.group(1)[:19] if m else ""
+
+    pending = {}
+    count, first, last, port = {}, {}, {}, {}
+    ok = {}
+    for line in text.splitlines():
+        m = cn_re.search(line)
+        if m:
+            pending[m.group(1)] = _ts()
+            continue
+        m = eof_re.search(line)
+        if m:
+            ip = m.group(1)
+            if ip in pending:
+                t = _ts()
+                count[ip] = count.get(ip, 0) + 1
+                first.setdefault(ip, t)
+                last[ip] = t
+                port.setdefault(ip, m.group(2))
+            continue
+        m = ok_re.search(line)
+        if m:
+            ip = m.group(1) or m.group(2) or m.group(3)
+            if ip:
+                ok.setdefault(ip, []).append(_ts())
+
+    result = []
+    for ip in sorted(count, key=lambda k: first[k]):
+        unbanned = None
+        if ip in ok:
+            cands = [t for t in ok[ip] if t and t > last[ip]]
+            if cands:
+                unbanned = min(cands)
+        result.append({"ip": ip, "port": port.get(ip, "5658"), "count": count[ip],
+                       "first": first[ip], "last": last[ip], "unbanned": unbanned})
+    return result
+
+
+def ban_report(events, *, threshold=30, us_banned=None):
+    """Summarize parsed ban events: who was banned (by IP) and, per IP, the
+    warning breakdown by reason with the peak running score toward the threshold.
+
+    Every warning event carries ip/reason/count/running, so we can group per IP:
+    e.g. "Added 2 warning(s) to 1.2.3.4: Forked (12 / 30)" -> ip=1.2.3.4,
+    reason=Forked, count=2, running=12.
+
+    ``us_banned`` (optional) is the output of parse_us_banned() - the peers that
+    ban us - rendered as a "Nodes who ban us" section.
+    """
+    from collections import Counter, defaultdict
     bans = [e for e in events if e["type"] == "ban"]
     warnings = [e for e in events if e["type"] == "warning"]
     lines = [f"Ban analysis: {len(events)} events ({len(bans)} bans, {len(warnings)} warnings)"]
@@ -514,24 +590,47 @@ def ban_report(events, *, threshold=30):
         lines.append("  no ban activity recorded")
         return "\n".join(lines)
 
-    # bans grouped by reason -> the catalogue in practice
-    from collections import Counter
-    ban_reasons = Counter(e["reason"] for e in bans)
-    lines.append("  Bans by reason:")
-    if ban_reasons:
-        for reason, count in ban_reasons.most_common():
-            known = "" if reason in BAN_REASONS else " (unknown)"
-            lines.append(f"    - {reason} x{count}{known}")
+    # Who was banned, and why (IP is what the operator actually needs).
+    lines.append("  Bans by IP:")
+    if bans:
+        for e in bans:
+            known = "" if e["reason"] in BAN_REASONS else " (unknown)"
+            lines.append(f"    - {e['ip']}: {e['reason']}{known}")
     else:
         lines.append("    (none)")
 
-    # warning counts per IP -> who is closest to being banned
-    warn_by_ip = Counter(e["ip"] for e in warnings)
-    lines.append("  Warning accumulation (top IPs, threshold {0}):".format(threshold))
-    for ip, count in warn_by_ip.most_common(5):
-        lines.append(f"    - {ip}: {count} warnings")
+    # Peers that ban us (from our own node.log): Connected then Socket EOF.
+    lines.append("  Nodes who ban us (connected then Socket EOF):")
+    if us_banned:
+        for u in us_banned:
+            base = f"    - {u['ip']}:{u['port']}  first {u['first']} · last {u['last']} · x{u['count']}"
+            if u.get("unbanned"):
+                lines.append(f"{base}  · UNBANNED {u['unbanned']}")
+            else:
+                lines.append(f"{base}  · still banned (no release seen)")
+    else:
+        lines.append("    none")
 
-    # consensus health: what blocked consensus formation (why did bans happen)
+    # Per-IP warnings, broken down by reason, ranked by event count.
+    warn_by_ip = defaultdict(list)
+    for e in warnings:
+        warn_by_ip[e["ip"]].append(e)
+    lines.append("  Warning accumulation (top IPs, threshold {0}):".format(threshold))
+    if warn_by_ip:
+        ordered = sorted(warn_by_ip.items(), key=lambda kv: len(kv[1]), reverse=True)[:5]
+        for ip, evs in ordered:
+            peak = max(e["running"] for e in evs)
+            reasons = Counter(e["reason"] for e in evs)
+            flag = " — BANNED" if peak >= threshold else ""
+            lines.append(f"    - {ip}: {len(evs)} warnings (peak {peak}/{threshold}){flag}")
+            for reason, n in reasons.most_common():
+                weight = BAN_REASONS.get(reason)
+                weight_s = "" if weight is None else f" ({weight} pts)"
+                lines.append(f"        {reason}: x{n}{weight_s}")
+    else:
+        lines.append("    (none)")
+
+    # Consensus health: what reasons blocked consensus formation overall.
     lines.append("  Consensus blockers observed:")
     blockers = set(e["reason"] for e in bans + warnings)
     if blockers:
